@@ -1,0 +1,1 @@
+Read AGENTS.md and everything in docs/. This project uses Spec Driven Development — those documents are the source of truth.
