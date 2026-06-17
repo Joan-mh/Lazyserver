@@ -134,8 +134,28 @@ when it needs to **override** a default (non-systemd init, extra flags, a
 pre-check, etc.). This keeps files short while still allowing full control —
 satisfying NFR-1 (no code change to express an unusual command).
 
+### Value shape
+
+Each key under `actions` is an action id. Its value is one of:
+
+- the string `default` — use the systemd default template for this action
+  (equivalent to omitting the key; useful for explicit documentation).
+- a **list of strings** (argv) — executed **directly**, no shell, no
+  word-splitting. The first element is the program; subsequent elements are
+  individual arguments. Example:
+
+  ```yaml
+  actions:
+    reload: ["/usr/sbin/nginx", "-s", "reload"]
+    status: default
+  ```
+
+A bare string other than `default` is rejected by the loader (no implicit
+shell parsing — that would make NFR-1 leaky and command injection easy).
+
 > Defaults are a convenience of the data layer, not hard-coded service
-> knowledge: they are generated from the unit name and can always be overridden.
+> knowledge: they are generated from the unit name (and the init system
+> applicable to the distro), and can always be overridden.
 
 ## 6. Worked example — `tconf/services/bind9.yaml`
 
@@ -268,8 +288,13 @@ The loader must reject a file and report a clear error when:
   distros that are present.
 - a `file_set` is missing `directory`/`pattern` (after applying any
   `file_set_dirs` override) or `description`.
-- duplicate `id`s across entries, or duplicate file / file_set `id`s within an
-  entry.
+- duplicate file or file_set `id`s **within the same entry** — `files` and
+  `file_sets` share **one flat id namespace per entry**, so a fixed file and a
+  file set cannot share an id. (This keeps the per-distro override maps
+  `file_paths` and `file_set_dirs` unambiguous.)
+- duplicate entry `id`s **within the same tconf folder**. Across folders,
+  duplicates are not an error: the later folder in `tconf_paths` wins
+  (spec FR-7.4) and the shadowed entry is logged.
 
 ## 9. AI prompt template (for generating a new entry)
 

@@ -20,7 +20,7 @@ wins and this document is corrected.
 | Checksums | `hashlib` SHA-256 (stdlib) | FR-2.1 reliable change detection. |
 | Service control | Commands from tconf (systemd defaults derived in a data layer) | NFR-1: no init-system assumptions in code. |
 | Packaging | `pipx`-installable; single entry point `lazyserver` (alias `lsrv`) | Simple SSH install. |
-| Config persistence | TOML or YAML user-config file under `$XDG_CONFIG_HOME/lazyserver/` | FR-7.2. |
+| Config persistence | **TOML** at `$XDG_CONFIG_HOME/lazyserver/config.toml` of the **target user**, owned by the target user. Read with stdlib `tomllib`; write with a tiny hand-rolled emitter (or `tomli-w` if it gets fiddly). | FR-7.2. |
 
 > If Textual proves too heavy for low-resource servers, the fallback TUI is
 > `urwid`. This is a plan-level note, not a change to the spec.
@@ -58,7 +58,9 @@ lazyserver/
 │   └── resolve.py         # resolve effective path/unit/actions for THIS distro
 ├── services/
 │   ├── control.py         # start/stop/reload/... from resolved actions
-│   └── defaults.py        # systemd default action templates
+│   └── defaults.py        # default action templates as a DATA TABLE keyed by
+│                          # init system (e.g. {"systemd": {"start": ["systemctl","start","{unit}"], ...}}).
+│                          # NOT a code switch — adding an init system means adding a row, per NFR-1.
 ├── backup/
 │   ├── checksums.py       # SHA-256, baseline store
 │   ├── pending.py         # accumulate-across-sessions pending set (FR-2.2)
@@ -123,8 +125,14 @@ files → copy chosen version back with correct owner/mode → report.
 ## 8. Decisions still open
 
 - Textual vs urwid final call (lean: Textual; revisit if footprint matters).
-- User-config format TOML vs YAML (lean: TOML via stdlib `tomllib` for reading).
 
-Resolved: backup store is git-when-present / plain-otherwise, detected at
-startup, behind one `BackupStore` interface (FR-2.5); when git is used,
-LazyServer shells out to the `git` CLI (simplest, no extra dependency).
+Resolved:
+- Backup store is git-when-present / plain-otherwise, detected at startup,
+  behind one `BackupStore` interface (FR-2.5); when git is used, LazyServer
+  shells out to the `git` CLI (simplest, no extra dependency).
+- User-config is TOML at the target user's `$XDG_CONFIG_HOME/lazyserver/`
+  (spec FR-7.2); read via stdlib `tomllib`.
+- `actions` value shape: `default` (string) or argv list, no shell
+  (tconf-schema §5).
+- `files`/`file_sets` share one flat id namespace per entry; cross-folder
+  entry-id duplicates resolve last-wins (tconf-schema §8, spec FR-7.4).

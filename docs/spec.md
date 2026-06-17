@@ -44,7 +44,7 @@ install commands) live in **data**, never hard-coded in the program. See the
 | Term | Meaning |
 |------|---------|
 | **LazyServer** | The application. The command/binary is `lazyserver` (alias `lsrv`). |
-| **tconf** | The data format and the folder of YAML files LazyServer reads. "A tconf file" = one service or application definition. |
+| **tconf** | The data format and **one or more folders** of YAML files LazyServer reads (configured per FR-7.1). "A tconf file" = one service or application definition. |
 | **Entry** | A single service or application defined by one tconf YAML file. |
 | **Service** | A network daemon (e.g. bind9, nginx). Lives under `tconf/services/`. |
 | **Application** | A program with config files but not a network daemon (e.g. neovim). Lives under `tconf/apps/`. |
@@ -198,8 +198,20 @@ machinery.
 ### FR-7 Settings
 
 - **FR-7.1** The user configures: the **editor** to use, the **backup store**
-  folder location, and the **tconf folder** location(s).
-- **FR-7.2** Settings persist between runs in a user config file.
+  folder location, the **tconf folder location(s)** (one or more), and an
+  optional **target user** override (FR-1.10).
+- **FR-7.2 Persistence.** Settings persist between runs in a **TOML** file at
+  `$XDG_CONFIG_HOME/lazyserver/config.toml` of the **target user** (FR-1.10),
+  defaulting to `~target/.config/lazyserver/config.toml`. The file and its
+  parent directory are owned by the target user, so a root-run session never
+  leaves root-owned configs behind.
+- **FR-7.3 Default editor.** If `editor` is unset, LazyServer picks the first
+  that exists from: `$VISUAL`, `$EDITOR`, `nano`, `vi`. `nano` precedes `vi`
+  so a beginner is not trapped in a modal editor on first run.
+- **FR-7.4 Multiple tconf folders.** `tconf_paths` is an ordered list. Folders
+  are loaded in order; on duplicate entry `id`, **the last folder wins**. This
+  lets a user shadow a shipped entry with a local override without editing the
+  shipped file.
 
 ## 5. Out of scope (this version)
 
@@ -248,5 +260,11 @@ machinery.
   files use system-ownership resolution — FR-1.8.
 - **Backup store:** git when available, plain timestamped copies otherwise —
   FR-2.5.
+- **Settings:** TOML at `$XDG_CONFIG_HOME/lazyserver/config.toml` of the target
+  user, owned by the target user — FR-7.2.
+- **Default editor:** `$VISUAL` → `$EDITOR` → `nano` → `vi`, first that exists
+  — FR-7.3.
+- **Multiple tconf folders:** ordered list, last folder wins by entry `id` —
+  FR-7.4.
 
 No open questions remain blocking implementation.
