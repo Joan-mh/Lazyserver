@@ -25,6 +25,8 @@ from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 from ..app import AppContext, format_status_line
 from ..backup.checksums import sha256_of
 from ..backup.create import plan_ownership
+from ..backup.ownership import reapply as reapply_ownership
+from ..backup.ownership import snapshot as snapshot_ownership
 from ..editor import launch_editor
 from ..tconf.model import Entry
 from ..tconf.resolve import ResolvedFile, ResolvedFileSet
@@ -89,13 +91,19 @@ class FileScreen(Screen):
             yield Static(fs.example.rstrip(), classes="example")
 
         members = _expand_set(fs)
-        yield Static("Existing files in this set", classes="section-title")
+        yield Static(
+            "Existing files in this set",
+            id="set-members-title",
+            classes="section-title",
+        )
         if members:
             yield ListView(
                 *(_SetMemberRow(p) for p in members), id="set-members"
             )
         else:
-            yield Static("(none on disk)", classes="muted")
+            yield Static(
+                "(none on disk)", id="set-members-empty", classes="muted"
+            )
 
     def on_mount(self) -> None:
         self.title = f"LazyServer · {self.entry.name}"
@@ -150,10 +158,15 @@ class FileScreen(Screen):
     def _after_create(self, created: Path | None) -> None:
         if created is None:
             return
+        # The new file exists on disk; ensure the set view reflects it
+        # before we hand off to the editor, so a student returning here
+        # sees their file even if they immediately quit the editor.
+        self._refresh_set_view()
         self._edit_path(created)
 
     def _edit_path(self, path: Path) -> None:
         before = sha256_of(path)
+        snap = snapshot_ownership(path)
         try:
             with self.app.suspend():
                 result = launch_editor(
@@ -165,9 +178,56 @@ class FileScreen(Screen):
             result = launch_editor(
                 self.context.settings, path, dry_run=self.app.dry_run
             )
+        if not result.dry_run:
+            # FR-1.11: undo any owner/mode drift from editors that
+            # rewrite-and-rename. No-op when the file is unchanged.
+            reapply_ownership(path, snap)
         after = sha256_of(path)
         widget = self.query_one("#edit-result", Static)
         widget.update(_describe_edit(path, before, after, result.dry_run))
+        self._refresh_set_view()
+
+    def _refresh_set_view(self) -> None:
+        """Re-expand the file_set glob and rebuild the members list.
+
+        State-changing actions (create, edit, later backup/restore) call
+        this so the on-screen file list always reflects on-disk reality.
+        Without it, a student creating a new zone file sees nothing change
+        and may conclude the create failed (FR-1.6 / FR-4 didactic).
+
+        Safe on file (non-set) screens: there is no #set-members widget
+        and we return cleanly.
+        """
+        if not isinstance(self.payload, ResolvedFileSet):
+            return
+        try:
+            view = self.query_one("#set-members", ListView)
+        except Exception:
+            view = None
+
+        members = _expand_set(self.payload)
+        if view is not None:
+            view.clear()
+            for p in members:
+                view.append(_SetMemberRow(p))
+            return
+
+        # The original render had no members and used the "(none on disk)"
+        # placeholder instead of a ListView. Replace it now that we have
+        # members to show.
+        if not members:
+            return
+        try:
+            placeholder = self.query_one("#set-members-empty", Static)
+        except Exception:
+            return
+        new_view = ListView(*(_SetMemberRow(p) for p in members), id="set-members")
+        placeholder.remove()
+        try:
+            title = self.query_one("#set-members-title", Static)
+            self.mount(new_view, after=title)
+        except Exception:
+            self.mount(new_view)
 
 
 def _describe_edit(
