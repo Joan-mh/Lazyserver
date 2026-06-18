@@ -37,13 +37,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Iterable, Iterator
 
+from ..platform.user import TargetUser
 from ..tconf.resolve import ResolvedEntry, ResolvedFile, ResolvedFileSet, expand_file_set
+from ._fsutil import mkdir_owned_chain, write_owned
 from .checksums import sha256_of
 
 log = logging.getLogger("lazyserver.backup.pending")
@@ -67,17 +68,31 @@ class BaselineStore:
 
     ``root=None`` keeps the ledger in memory only — useful for the scan
     tests and for any session running without a configured backup store.
+    ``target_user`` is the FR-1.10 target user; when set, the ledger
+    file (and any directories we create above it) land target-user-
+    owned so a root-run session doesn't leave a root-owned archive
+    behind. The configured ``root`` is never chowned — that ownership
+    is the user's pre-existing choice.
     """
 
-    def __init__(self, root: Path | None) -> None:
+    def __init__(
+        self,
+        root: Path | None,
+        target_user: TargetUser | None = None,
+    ) -> None:
         self.root = root
+        self.target_user = target_user
         self._entries: dict[str, dict[str, dict]] = {}
 
     # ---------- load / save ----------
 
     @classmethod
-    def load(cls, root: Path | None) -> "BaselineStore":
-        inst = cls(root)
+    def load(
+        cls,
+        root: Path | None,
+        target_user: TargetUser | None = None,
+    ) -> "BaselineStore":
+        inst = cls(root, target_user=target_user)
         if root is None:
             return inst
         path = root / BASELINES_FILENAME
@@ -95,16 +110,21 @@ class BaselineStore:
         return inst
 
     def save(self) -> None:
-        """Write the ledger atomically. No-op when root is None."""
+        """Write the ledger atomically with the right ownership.
+
+        Atomic via temp+rename so a crash mid-write never corrupts the
+        ledger. No-op when root is None.
+        """
         if self.root is None:
             return
+        # Ensure the root exists; if it predates us, mkdir_owned_chain
+        # is a no-op for it (boundary respected).
         self.root.mkdir(parents=True, exist_ok=True)
+        mkdir_owned_chain(self.root, self.target_user, stop_at=self.root)
         target = self.root / BASELINES_FILENAME
-        tmp = target.with_suffix(target.suffix + ".tmp")
         payload = {"version": SCHEMA_VERSION, "entries": self._entries}
-        with tmp.open("w") as fp:
-            json.dump(payload, fp, indent=2, sort_keys=True)
-        os.replace(tmp, target)
+        body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+        write_owned(target, body, self.target_user)
 
     # ---------- get / set / iterate ----------
 

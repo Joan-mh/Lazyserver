@@ -10,6 +10,8 @@ the user note asks be surfaced rather than hidden.
 from __future__ import annotations
 
 import json
+import os
+import pwd
 from pathlib import Path
 
 import pytest
@@ -24,12 +26,18 @@ from lazyserver.backup.pending import (
     scan_entry,
     pending_only,
 )
+from lazyserver.platform.user import TargetUser
 from lazyserver.tconf.model import Entry
 from lazyserver.tconf.resolve import (
     ResolvedEntry,
     ResolvedFile,
     ResolvedFileSet,
 )
+
+
+def _self_user() -> TargetUser:
+    me = pwd.getpwuid(os.getuid())
+    return TargetUser(name=me.pw_name, uid=me.pw_uid, gid=me.pw_gid, home=Path(me.pw_dir))
 
 
 # ---------- ledger persistence ----------
@@ -79,6 +87,32 @@ def test_ledger_rejects_unknown_schema_version(tmp_path: Path):
     (tmp_path / BASELINES_FILENAME).write_text(json.dumps(bogus))
     with pytest.raises(ValueError, match="schema version"):
         BaselineStore.load(tmp_path)
+
+
+def test_ledger_save_chowns_to_target_user(tmp_path: Path):
+    """4b ownership boundary: the saved ledger lands target-user-owned."""
+    user = _self_user()
+    store = BaselineStore.load(tmp_path, target_user=user)
+    store.set("bind9", Path("/etc/named.conf"), _bl())
+    store.save()
+    saved = tmp_path / BASELINES_FILENAME
+    assert saved.stat().st_uid == user.uid
+
+
+def test_ledger_save_does_not_chown_pre_existing_root(tmp_path: Path):
+    """The configured backup_store root predates us — we never modify
+    its ownership/mode."""
+    root = tmp_path / "store"
+    root.mkdir(mode=0o701)
+    root_before = root.stat()
+
+    store = BaselineStore.load(root, target_user=_self_user())
+    store.set("bind9", Path("/etc/named.conf"), _bl())
+    store.save()
+
+    after = root.stat()
+    assert after.st_uid == root_before.st_uid
+    assert after.st_mode == root_before.st_mode
 
 
 def test_ledger_iter_entry_yields_baselined_paths(tmp_path: Path):
