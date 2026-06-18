@@ -33,9 +33,13 @@ class Settings:
 def default_path(user: TargetUser) -> Path:
     """Path to the settings file for `user` (FR-7.2).
 
-    Uses the XDG default `$HOME/.config/...` against the target user's home,
-    not the running process's $XDG_CONFIG_HOME (which under sudo belongs to
-    root, not the target user).
+    Always `~target/.config/lazyserver/config.toml`. A custom
+    `$XDG_CONFIG_HOME` set in the target user's shell is intentionally
+    ignored: under sudo we run with root's environment, so the target user's
+    env (and therefore their XDG override) is not available to us. Honouring
+    the env we *do* see would put config under root's XDG_CONFIG_HOME, which
+    is worse — the file would not be owned by, nor visible to, the target
+    user on the next non-sudo invocation. Documented limitation (spec FR-7.2).
     """
     return user.home / ".config" / CONFIG_DIRNAME / CONFIG_FILENAME
 
