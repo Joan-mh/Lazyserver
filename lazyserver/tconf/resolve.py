@@ -8,6 +8,7 @@ user's home (FR-1.10, schema §10).
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
@@ -49,6 +50,22 @@ class ResolvedFileSet:
 
 
 @dataclass(frozen=True)
+class FileAlias:
+    """Group of fixed-file ids that all resolve to one path on this distro.
+
+    Surfaced so backup/edit/modification-detection can dedupe (one file on
+    disk = one checksum, one snapshot), and so the TUI can explain to the
+    student why two declared files map to the same target — the bind9-on-arch
+    case where named.conf.options and named.conf.local are split on Debian
+    but combined into /etc/named.conf on Arch. No schema change required.
+    """
+
+    path: str
+    file_ids: tuple[str, ...]
+    note: str
+
+
+@dataclass(frozen=True)
 class ResolvedEntry:
     entry: Entry
     distro_id: str
@@ -58,6 +75,7 @@ class ResolvedEntry:
     actions: dict[str, tuple[str, ...]]
     files: tuple[ResolvedFile, ...]
     file_sets: tuple[ResolvedFileSet, ...]
+    aliases: tuple[FileAlias, ...] = ()
 
 
 def resolve(
@@ -88,6 +106,7 @@ def resolve(
     )
     install = _resolve_install(profile, distro_id)
     actions = _resolve_actions(profile, distro_id)
+    aliases = _detect_file_aliases(entry, distro_id, files)
 
     return ResolvedEntry(
         entry=entry,
@@ -98,6 +117,7 @@ def resolve(
         actions=actions,
         files=files,
         file_sets=file_sets,
+        aliases=aliases,
     )
 
 
@@ -193,6 +213,92 @@ def _subst(arg: str, **subs: str) -> str:
     for key, value in subs.items():
         out = out.replace("{" + key + "}", value)
     return out
+
+
+def _detect_file_aliases(
+    entry: Entry, distro_id: str, files: tuple[ResolvedFile, ...]
+) -> tuple[FileAlias, ...]:
+    """Group fixed files that resolved to the same path on `distro_id`.
+
+    Scope: fixed `files` only — `file_sets` are excluded (their semantics
+    are directory+glob, and a directory collision is a different concern).
+    Each group carries a didactic note that, when possible, contrasts with
+    a sibling distro where the same ids resolve to *different* paths.
+    """
+    grouped: dict[str, list[str]] = defaultdict(list)
+    for f in files:
+        grouped[f.path].append(f.id)
+
+    aliases: list[FileAlias] = []
+    for path, ids in grouped.items():
+        if len(ids) < 2:
+            continue
+        ids_sorted = tuple(sorted(ids))
+        aliases.append(
+            FileAlias(
+                path=path,
+                file_ids=ids_sorted,
+                note=_build_alias_note(entry, distro_id, ids_sorted, path),
+            )
+        )
+    return tuple(sorted(aliases, key=lambda a: a.path))
+
+
+def _build_alias_note(
+    entry: Entry, distro_id: str, group_ids: tuple[str, ...], shared_path: str
+) -> str:
+    quantifier = "both" if len(group_ids) == 2 else "all"
+    ids_phrase = _and_join(group_ids)
+    base = (
+        f"On {distro_id}, {ids_phrase} {quantifier} resolve to {shared_path}; "
+        "LazyServer treats them as one file (single edit, single backup)."
+    )
+    contrast = _find_contrast_distro(entry, distro_id, group_ids)
+    if contrast is None:
+        return base
+    other_id, other_paths = contrast
+    pairs = ", ".join(
+        f"{fid} → {path}" for fid, path in zip(group_ids, other_paths)
+    )
+    return f"{base} On {other_id} they are separate: {pairs}."
+
+
+def _find_contrast_distro(
+    entry: Entry, distro_id: str, group_ids: tuple[str, ...]
+) -> tuple[str, tuple[str, ...]] | None:
+    """Find another distro where the same ids resolve to >1 distinct paths."""
+    for other_id in entry.distros:
+        if other_id == distro_id:
+            continue
+        paths = tuple(_file_path_on(entry, fid, other_id) for fid in group_ids)
+        if any(p is None for p in paths):
+            continue
+        if len(set(paths)) > 1:
+            return other_id, paths  # type: ignore[return-value]
+    return None
+
+
+def _file_path_on(entry: Entry, file_id: str, distro_id: str) -> str | None:
+    """Return the un-expanded resolved path of file_id on distro_id.
+
+    Used only to build the didactic contrast in alias notes — no `~`
+    expansion, no error raising; returns None when the lookup is impossible.
+    """
+    profile = entry.distros.get(distro_id)
+    if profile is None:
+        return None
+    f = next((f for f in entry.files if f.id == file_id), None)
+    if f is None:
+        return None
+    return profile.file_paths.get(f.id, f.path)
+
+
+def _and_join(items: tuple[str, ...]) -> str:
+    if len(items) == 1:
+        return repr(items[0])
+    if len(items) == 2:
+        return f"{items[0]!r} and {items[1]!r}"
+    return ", ".join(repr(x) for x in items[:-1]) + f", and {items[-1]!r}"
 
 
 def _expand_user(

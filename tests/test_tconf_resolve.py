@@ -143,6 +143,56 @@ distros:
         resolve(entry, "ubuntu")
 
 
+def test_bind9_on_arch_collapses_named_conf_files(tmp_path: Path):
+    """Real-world motivation: Arch ships a single /etc/named.conf, so the
+    two declared bind9 files resolve to the same path and must be treated
+    as one (single backup, single edit). The note contrasts with ubuntu."""
+    from lazyserver.tconf import bundled_tconf_path
+    entries = {e.id: e for e in loader.load_folder(bundled_tconf_path())}
+    r = resolve(entries["bind9"], "arch")
+    assert len(r.aliases) == 1
+    alias = r.aliases[0]
+    assert alias.path == "/etc/named.conf"
+    assert set(alias.file_ids) == {"named_conf_options", "named_conf_local"}
+    assert "ubuntu" in alias.note
+    assert "named.conf.options" in alias.note
+    assert "named.conf.local" in alias.note
+
+
+def test_bind9_on_ubuntu_has_no_aliases(tmp_path: Path):
+    from lazyserver.tconf import bundled_tconf_path
+    entries = {e.id: e for e in loader.load_folder(bundled_tconf_path())}
+    r = resolve(entries["bind9"], "ubuntu")
+    assert r.aliases == ()
+
+
+def test_synthetic_two_id_collision(tmp_path: Path):
+    body = """
+schema_version: 1
+id: x
+name: X
+kind: service
+description: x
+files:
+  - {id: a, description: a}
+  - {id: b, description: b}
+distros:
+  ubuntu:
+    package: x
+    service_unit: x
+    file_paths: {a: /etc/shared.conf, b: /etc/shared.conf}
+"""
+    entry = loader.load_file(write(tmp_path, body))
+    r = resolve(entry, "ubuntu")
+    assert len(r.aliases) == 1
+    alias = r.aliases[0]
+    assert alias.path == "/etc/shared.conf"
+    assert alias.file_ids == ("a", "b")
+    # Only one distro defined → no contrast clause appended.
+    assert "they are separate" not in alias.note
+    assert "/etc/shared.conf" in alias.note
+
+
 def test_service_with_tilde_raises(tmp_path: Path):
     body = """
 schema_version: 1
