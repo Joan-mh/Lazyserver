@@ -14,10 +14,30 @@ def test_version_flag(capsys):
     assert __version__ in captured.out
 
 
-def test_no_command_exits_zero(capsys):
-    code = cli.main([])
-    assert code == 0
-    assert "not implemented" in capsys.readouterr().err.lower()
+def test_no_command_launches_tui(capsys, monkeypatch):
+    """cli.main([]) calls into the Textual app; we mock the actual run."""
+    from lazyserver import app as app_module
+
+    calls = {"n": 0}
+
+    def fake_run() -> int:
+        calls["n"] += 1
+        return 0
+
+    monkeypatch.setattr(app_module, "run", fake_run)
+    assert cli.main([]) == 0
+    assert calls["n"] == 1
+
+
+def test_no_command_reports_bootstrap_failure(capsys, monkeypatch):
+    from lazyserver import app as app_module
+
+    def fake_run() -> int:
+        raise app_module.BootstrapError("synthetic boom")
+
+    monkeypatch.setattr(app_module, "run", fake_run)
+    assert cli.main([]) == 1
+    assert "synthetic boom" in capsys.readouterr().err
 
 
 def test_module_entry_runs_version():

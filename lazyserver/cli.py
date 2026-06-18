@@ -30,9 +30,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command is None:
-        print("LazyServer TUI is not implemented yet (Phase 2+).", file=sys.stderr)
-        print("Try `lazyserver --version`.", file=sys.stderr)
-        return 0
+        from .app import BootstrapError, run
+
+        try:
+            return run()
+        except BootstrapError as exc:
+            print(f"lazyserver: {exc}", file=sys.stderr)
+            return 1
 
     if args.command == "recover":
         print("recover: not yet implemented (Phase 6).", file=sys.stderr)

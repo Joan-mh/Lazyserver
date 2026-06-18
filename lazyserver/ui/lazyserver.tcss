@@ -1,0 +1,63 @@
+/* LazyServer Textual stylesheet — minimal, readable defaults. */
+
+Screen {
+    layout: vertical;
+}
+
+.section-title {
+    background: $primary 20%;
+    color: $primary;
+    padding: 0 1;
+    margin: 1 0 0 0;
+    text-style: bold;
+}
+
+.entry-title, .file-title {
+    text-style: bold;
+    padding: 1 1 0 1;
+}
+
+.file-path {
+    color: $accent;
+    padding: 0 1;
+}
+
+.entry-description, .file-description {
+    padding: 1;
+}
+
+.example {
+    padding: 1;
+    background: $boost;
+    color: $text;
+}
+
+.muted {
+    color: $text-muted;
+    padding: 0 1;
+}
+
+.alias-note {
+    background: $warning 20%;
+    color: $warning;
+    padding: 0 1;
+}
+
+.alert {
+    background: $error 20%;
+    color: $error;
+    padding: 0 1;
+}
+
+#status-line {
+    dock: bottom;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 1;
+    border-top: solid $primary 20%;
+}
+
+ListView {
+    height: auto;
+    max-height: 20;
+}
