@@ -228,9 +228,13 @@ machinery.
 
 - **NFR-1 No code changes for new distros or services.** Adding a distro or an
   entry is a data-only operation.
-- **NFR-2 Safe by default.** Destructive actions (restore, recovery,
-  service control) confirm before acting; restore always takes a pre-restore
-  snapshot (FR-3.2).
+- **NFR-2 Safe by default.** Restore always takes an automatic pre-restore
+  snapshot (FR-3.2), so even a wrong restore is reversible.
+  **Interactive confirmations are intentionally not used** for service
+  control, restore, or recovery; in the supported deployment (§9
+  Deployment assumptions) safety comes from VM snapshots and the
+  automatic pre-restore snapshot, not from "are you sure?" prompts.
+  A deployment outside that context should reconsider this trade-off.
 - **NFR-3 Privilege.** Editing system config and controlling services needs
   root. LazyServer is expected to run via `sudo`/as root; it must fail with a
   clear message if it lacks the privileges an action needs, rather than
@@ -271,3 +275,32 @@ machinery.
   FR-7.4.
 
 No open questions remain blocking implementation.
+
+## 9. Deployment assumptions
+
+Several safety choices in this spec — especially NFR-2 — are shaped by the
+deployment context LazyServer is built for:
+
+- **Local VirtualBox VMs with direct console access.** Each student runs
+  LazyServer in a VM they have full control over. Console access is always
+  available, so a wrong action that breaks SSH is not a lockout.
+- **VM snapshots are the ultimate undo.** A wrong service stop, a broken
+  config, even a borked sshd — anything is recoverable by reverting to a
+  snapshot taken before the lesson. Recoverable mistakes are also the
+  pedagogical method: students are expected to break things and learn from
+  it.
+
+Two consequences:
+
+1. **No interactive confirmations** on destructive actions (NFR-2).
+   Confirmation modals would slow down the "try → observe → undo → try
+   again" loop that the course depends on.
+2. **Automatic safety still applies.** The pre-restore snapshot (FR-3.2)
+   is unconditional, not a prompt — it costs the user nothing and stays.
+
+**Deployments outside this context** — e.g. a remote production server
+reached only over SSH — should reconsider the no-confirmation choice.
+Stopping sshd over SSH locks you out for real, and there are no snapshots
+to revert. Reintroducing confirmations on destructive actions is the
+obvious mitigation. This is documented for future readers; not implemented
+in v1.0.

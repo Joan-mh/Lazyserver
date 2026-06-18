@@ -23,8 +23,10 @@ spec first, then the code.
 - Keep distro/init-system knowledge in **data**, never in code (NFR-1). If you
   feel the urge to write `systemctl` in a `.py` file as the only way to do
   something, that is a signal to push it into the tconf/data layer instead.
-- Destructive actions must confirm and must be reversible where the spec says so
-  (NFR-2, FR-3.2).
+- Destructive actions are reversible by design (pre-restore snapshot, FR-3.2)
+  but **do not** prompt for confirmation — see spec NFR-2 and §9 Deployment
+  assumptions. A deployment outside the classroom VM context should revisit
+  this.
 - Fail loudly on missing privileges; never half-apply a change (NFR-3).
 - Prefer the standard library; keep dependencies minimal (NFR-4).
 
