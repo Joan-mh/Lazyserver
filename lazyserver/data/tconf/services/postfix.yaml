@@ -1,0 +1,45 @@
+schema_version: 1
+id: postfix
+name: Postfix (SMTP)
+kind: service
+category: mail
+docs_url: https://www.postfix.org/documentation.html
+
+description: |
+  Postfix is an SMTP server: it sends, relays, and receives email. Two
+  files do most of the work: main.cf for general settings (hostname, allowed
+  networks, mailbox style) and master.cf for the daemon processes that
+  Postfix runs.
+
+files:
+  - id: main_cf
+    path: /etc/postfix/main.cf
+    description: |
+      The main Postfix configuration. Sets the server's hostname, the
+      networks allowed to relay, the mailbox style (Maildir vs mbox),
+      and TLS options.
+    example: |
+      myhostname = mail.example.lan
+      mydomain = example.lan
+      myorigin = $mydomain
+      inet_interfaces = all
+      mynetworks = 127.0.0.0/8 192.168.0.0/24
+
+  - id: master_cf
+    path: /etc/postfix/master.cf
+    description: |
+      Declares which Postfix services run, on which ports, and with which
+      flags. You only edit this when adding submission/SMTPS ports or
+      tweaking a delivery pipeline.
+    example: |
+      smtp      inet  n       -       y       -       -       smtpd
+      submission inet n       -       y       -       -       smtpd
+
+distros:
+  ubuntu:
+    package: postfix
+    service_unit: postfix
+
+  arch:
+    package: postfix
+    service_unit: postfix

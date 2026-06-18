@@ -1,0 +1,35 @@
+schema_version: 1
+id: vsftpd
+name: vsftpd (FTP)
+kind: service
+category: ftp
+docs_url: https://security.appspot.com/vsftpd.html
+
+description: |
+  vsftpd is a small, security-oriented FTP daemon. It is most often used to
+  let a defined set of users upload and download files over FTP or FTPS.
+  A single configuration file controls anonymous access, local-user access,
+  and TLS.
+
+files:
+  - id: vsftpd_conf
+    path: /etc/vsftpd.conf
+    description: |
+      The main vsftpd configuration. Toggles anonymous logins, controls
+      whether local users may log in and write, and points at TLS keys for
+      FTPS.
+    example: |
+      listen=YES
+      anonymous_enable=NO
+      local_enable=YES
+      write_enable=YES
+      chroot_local_user=YES
+
+distros:
+  ubuntu:
+    package: vsftpd
+    service_unit: vsftpd
+
+  arch:
+    package: vsftpd
+    service_unit: vsftpd

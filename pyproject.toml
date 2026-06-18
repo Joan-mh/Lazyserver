@@ -9,7 +9,7 @@ description = "TUI to configure, back up, restore, and learn about Linux network
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "LazyServer contributors" }]
-dependencies = []
+dependencies = ["PyYAML>=6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
@@ -21,6 +21,9 @@ lsrv = "lazyserver.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["lazyserver*"]
+
+[tool.setuptools.package-data]
+lazyserver = ["data/tconf/services/*.yaml", "data/tconf/apps/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

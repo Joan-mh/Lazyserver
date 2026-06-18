@@ -1,0 +1,42 @@
+schema_version: 1
+id: squid
+name: Squid (HTTP proxy)
+kind: service
+category: proxy
+docs_url: https://www.squid-cache.org/Doc/
+
+description: |
+  Squid is a caching HTTP/HTTPS proxy. A LAN points its browsers at Squid;
+  Squid forwards their requests, caches responses, and can also enforce
+  access rules (who may reach the internet, when, and to which sites).
+
+files:
+  - id: squid_conf
+    path: /etc/squid/squid.conf
+    description: |
+      The main Squid configuration: which port to listen on, which networks
+      are allowed clients, cache directory and size, and any URL ACLs.
+    example: |
+      http_port 3128
+      acl localnet src 192.168.0.0/24
+      http_access allow localnet
+      http_access deny all
+      cache_dir ufs /var/spool/squid 1024 16 256
+
+file_sets:
+  - id: conf_d
+    directory: /etc/squid/conf.d
+    pattern: "*.conf"
+    description: |
+      Drop-in configuration files. Anything you place here is included by
+      squid.conf at startup, which is handy for splitting out per-network
+      ACLs or peer configuration.
+
+distros:
+  ubuntu:
+    package: squid
+    service_unit: squid
+
+  arch:
+    package: squid
+    service_unit: squid

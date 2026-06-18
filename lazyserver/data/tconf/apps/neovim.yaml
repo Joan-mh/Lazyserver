@@ -1,0 +1,28 @@
+schema_version: 1
+id: neovim
+name: Neovim
+kind: app
+category: editor
+docs_url: https://neovim.io/doc/
+
+description: |
+  Neovim is a modern, extensible Vim-based text editor. Its configuration
+  lives in the user's config directory and controls plugins, key mappings,
+  and appearance.
+
+files:
+  - id: init_lua
+    path: ~/.config/nvim/init.lua
+    description: |
+      The main Neovim configuration, written in Lua. Loaded at startup; it
+      sets options, key mappings, and bootstraps plugins.
+    example: |
+      vim.opt.number = true
+      vim.opt.expandtab = true
+      vim.opt.shiftwidth = 2
+
+distros:
+  ubuntu:
+    package: neovim
+  arch:
+    package: neovim

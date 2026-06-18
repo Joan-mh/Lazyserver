@@ -1,0 +1,68 @@
+schema_version: 1
+id: nginx
+name: nginx (HTTP server)
+kind: service
+category: http
+docs_url: https://nginx.org/en/docs/
+
+description: |
+  nginx is a fast HTTP server and reverse proxy. A single main configuration
+  declares global settings; on Debian/Ubuntu, individual sites live in their
+  own files under sites-available/ and are enabled via symlinks under
+  sites-enabled/. On Arch the convention is to drop site files under
+  conf.d/. LazyServer tracks both styles.
+
+files:
+  - id: nginx_conf
+    path: /etc/nginx/nginx.conf
+    description: |
+      The top-level configuration. Sets worker processes, included file
+      directories, gzip and logging defaults. It usually `include`s the
+      sites or conf.d directory rather than hosting site config itself.
+    example: |
+      worker_processes auto;
+      events { worker_connections 1024; }
+      http {
+          include       /etc/nginx/mime.types;
+          default_type  application/octet-stream;
+          sendfile on;
+          include /etc/nginx/conf.d/*.conf;
+      }
+
+file_sets:
+  - id: sites_available
+    pattern: "*"
+    description: |
+      One file per virtual host. Each defines a `server { ... }` block: the
+      ports it listens on, server_name(s), document root, and any reverse-
+      proxy or TLS settings. On Debian/Ubuntu, files here are made live by
+      symlinking into sites-enabled/.
+    example: |
+      server {
+          listen 80;
+          server_name example.lan;
+          root /var/www/example;
+          index index.html;
+      }
+
+  - id: conf_d
+    pattern: "*.conf"
+    description: |
+      Drop-in config snippets included by nginx.conf. Useful for shared
+      settings (TLS hardening, upstream pools) and, on Arch, the usual
+      home for site definitions.
+
+distros:
+  ubuntu:
+    package: nginx
+    service_unit: nginx
+    file_set_dirs:
+      sites_available: /etc/nginx/sites-available
+      conf_d: /etc/nginx/conf.d
+
+  arch:
+    package: nginx
+    service_unit: nginx
+    file_set_dirs:
+      sites_available: /etc/nginx/sites-available
+      conf_d: /etc/nginx/conf.d

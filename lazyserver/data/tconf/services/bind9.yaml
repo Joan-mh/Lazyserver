@@ -1,0 +1,70 @@
+schema_version: 1
+id: bind9
+name: BIND 9 (DNS)
+kind: service
+category: dns
+docs_url: https://bind9.readthedocs.io/
+
+description: |
+  BIND 9 is the most widely used DNS server on the internet. It answers
+  name-resolution queries (turning names like example.com into IP addresses)
+  and can act as an authoritative server for your own zones or as a caching
+  resolver for a network. Configuration is split between a main options file
+  and one or more zone files.
+
+files:
+  - id: named_conf_options
+    description: |
+      Global server options: listening addresses, recursion settings,
+      forwarders, and access control. This is where you decide whether the
+      server is a resolver for your LAN, an authoritative server, or both.
+    example: |
+      options {
+          directory "/var/cache/bind";
+          recursion yes;
+          allow-query { localhost; 192.168.0.0/24; };
+          forwarders { 1.1.1.1; 8.8.8.8; };
+      };
+
+  - id: named_conf_local
+    description: |
+      Where you declare your own zones. Each zone points to a zone file that
+      holds the actual DNS records for a domain.
+    example: |
+      zone "example.lan" {
+          type master;
+          file "/etc/bind/db.example.lan";
+      };
+
+file_sets:
+  - id: zone_files
+    pattern: "db.*"
+    description: |
+      Zone files hold the DNS records (A, MX, CNAME, ...) for each domain
+      you host. LazyServer tracks every file matching the pattern, so zones
+      you add later are picked up automatically.
+    example: |
+      $TTL 86400
+      @   IN  SOA ns1.example.lan. admin.example.lan. ( 1 3600 900 604800 86400 )
+      @   IN  NS  ns1.example.lan.
+      ns1 IN  A   192.168.0.10
+      www IN  A   192.168.0.20
+
+distros:
+  ubuntu:
+    package: bind9
+    service_unit: named
+    file_paths:
+      named_conf_options: /etc/bind/named.conf.options
+      named_conf_local: /etc/bind/named.conf.local
+    file_set_dirs:
+      zone_files: /etc/bind
+
+  arch:
+    package: bind
+    service_unit: named
+    file_paths:
+      named_conf_options: /etc/named.conf
+      named_conf_local: /etc/named.conf
+    file_set_dirs:
+      zone_files: /var/named

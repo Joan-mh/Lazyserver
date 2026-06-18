@@ -1,0 +1,41 @@
+schema_version: 1
+id: dovecot
+name: Dovecot (IMAP/POP3)
+kind: service
+category: mail
+docs_url: https://doc.dovecot.org/
+
+description: |
+  Dovecot is an IMAP and POP3 server: it lets mail clients read messages
+  delivered by Postfix (or another MTA). Its configuration is split across
+  a main file and a `conf.d/` of focused fragments — one for authentication,
+  one for mailbox location, one for SSL, and so on.
+
+files:
+  - id: dovecot_conf
+    path: /etc/dovecot/dovecot.conf
+    description: |
+      The top-level Dovecot configuration. Declares which protocols are
+      enabled and includes the per-topic fragments under conf.d/.
+    example: |
+      protocols = imap pop3 lmtp
+      listen = *, ::
+      !include conf.d/*.conf
+
+file_sets:
+  - id: conf_d
+    directory: /etc/dovecot/conf.d
+    pattern: "*.conf"
+    description: |
+      Per-topic configuration fragments included by dovecot.conf. Files are
+      numbered (e.g. 10-auth.conf, 10-mail.conf) so the include order is
+      predictable.
+
+distros:
+  ubuntu:
+    package: dovecot-core
+    service_unit: dovecot
+
+  arch:
+    package: dovecot
+    service_unit: dovecot

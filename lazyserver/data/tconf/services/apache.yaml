@@ -1,0 +1,49 @@
+schema_version: 1
+id: apache
+name: Apache (httpd)
+kind: service
+category: http
+docs_url: https://httpd.apache.org/docs/
+
+description: |
+  The Apache HTTP Server is a long-established web server. The Debian and
+  Arch packages organise its configuration quite differently: Debian splits
+  global config, port settings, modules, and per-site config across separate
+  directories; Arch keeps a single httpd.conf that you edit directly.
+
+files:
+  - id: main_conf
+    description: |
+      The main configuration file. On Ubuntu this is apache2.conf, which
+      pulls in mods-enabled/, sites-enabled/, and ports.conf. On Arch this
+      is httpd.conf, which is more self-contained.
+    example: |
+      ServerName example.lan
+      Listen 80
+      DocumentRoot "/srv/http"
+
+file_sets:
+  - id: sites_available
+    pattern: "*.conf"
+    description: |
+      Per-virtual-host configuration. Each file declares a `<VirtualHost>`
+      block. On Debian/Ubuntu, sites are made live by enabling them
+      (a2ensite); on Arch, drop them under conf.d/ and they are picked up
+      via `Include`.
+
+distros:
+  ubuntu:
+    package: apache2
+    service_unit: apache2
+    file_paths:
+      main_conf: /etc/apache2/apache2.conf
+    file_set_dirs:
+      sites_available: /etc/apache2/sites-available
+
+  arch:
+    package: apache
+    service_unit: httpd
+    file_paths:
+      main_conf: /etc/httpd/conf/httpd.conf
+    file_set_dirs:
+      sites_available: /etc/httpd/conf/extra

@@ -1,0 +1,51 @@
+schema_version: 1
+id: isc-dhcp-server
+name: ISC DHCP Server
+kind: service
+category: dhcp
+docs_url: https://www.isc.org/dhcp/
+
+description: |
+  The ISC DHCP server hands out IP addresses and network settings (gateway,
+  DNS, lease time) to machines on a LAN. You configure a subnet, optionally
+  reserve fixed addresses for known MAC addresses, and the server takes
+  care of address assignment as devices join the network.
+
+files:
+  - id: dhcpd_conf
+    description: |
+      Main configuration: the subnets the server is authoritative for, the
+      pool of addresses to hand out, default gateway and DNS, and any
+      per-host reservations.
+    example: |
+      default-lease-time 600;
+      max-lease-time 7200;
+      subnet 192.168.0.0 netmask 255.255.255.0 {
+          range 192.168.0.100 192.168.0.200;
+          option routers 192.168.0.1;
+          option domain-name-servers 192.168.0.1, 1.1.1.1;
+      }
+
+  - id: defaults
+    description: |
+      On Ubuntu, the interface(s) the DHCP server should listen on are set
+      in this file. On Arch this is configured via a systemd drop-in
+      instead, so the file is absent there.
+    optional: true
+    example: |
+      INTERFACESv4="eth0"
+
+distros:
+  ubuntu:
+    package: isc-dhcp-server
+    service_unit: isc-dhcp-server
+    file_paths:
+      dhcpd_conf: /etc/dhcp/dhcpd.conf
+      defaults: /etc/default/isc-dhcp-server
+
+  arch:
+    package: dhcp
+    service_unit: dhcpd4
+    file_paths:
+      dhcpd_conf: /etc/dhcpd.conf
+      defaults: /etc/conf.d/dhcpd
