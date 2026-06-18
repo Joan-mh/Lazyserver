@@ -43,6 +43,11 @@ Screen {
     padding: 0 1;
 }
 
+.action-hint {
+    color: $accent;
+    padding: 1 1 0 1;
+}
+
 .alert {
     background: $error 20%;
     color: $error;

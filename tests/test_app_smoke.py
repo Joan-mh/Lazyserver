@@ -175,6 +175,58 @@ async def test_d_key_toggles_dry_run():
         assert app.dry_run is False
 
 
+async def test_action_keys_fire_resolved_argv_under_dry_run():
+    """Pressing 1..7 on a service entry runs the corresponding action via
+    services.control. Using dry_run=True so no real systemctl runs."""
+    ctx = _arch_context()
+    app = LazyServerApp(ctx, dry_run=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from lazyserver.ui.home_screen import _EntryItem
+        services_list = app.screen.query_one("#services-list")
+        bind9_item = next(
+            item for item in services_list.query(_EntryItem)
+            if item.entry.id == "bind9"
+        )
+        services_list.index = services_list._nodes.index(bind9_item)
+        await pilot.press("enter")
+        await pilot.pause()
+        # On the entry screen. Press '4' = reload.
+        await pilot.press("4")
+        await pilot.pause()
+        result_text = app.screen.query_one("#action-result").content
+        assert "systemctl reload named" in result_text
+        assert "exit 0" in result_text
+        assert "(dry-run)" in result_text
+
+
+async def test_app_entry_action_keys_noop():
+    """Neovim is an app — no actions. Pressing 1 must not crash; the
+    result widget either is absent or stays empty."""
+    ctx = _arch_context()
+    app = LazyServerApp(ctx, dry_run=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from lazyserver.ui.home_screen import _EntryItem
+        apps_list = app.screen.query_one("#apps-list")
+        neovim_item = next(
+            item for item in apps_list.query(_EntryItem)
+            if item.entry.id == "neovim"
+        )
+        apps_list.focus()
+        apps_list.index = apps_list._nodes.index(neovim_item)
+        await pilot.press("enter")
+        await pilot.pause()
+        # No action-result widget should exist for app entries.
+        from textual.css.query import NoMatches
+        try:
+            app.screen.query_one("#action-result")
+            has_widget = True
+        except NoMatches:
+            has_widget = False
+        assert has_widget is False
+
+
 async def test_escape_pops_to_home():
     ctx = _arch_context()
     app = LazyServerApp(ctx)

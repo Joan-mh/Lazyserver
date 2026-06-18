@@ -1,14 +1,21 @@
-"""Entry detail — description + managed files list (FR-1.2, FR-4.3)."""
+"""Entry detail — description, managed files, and service actions
+(FR-1.2, FR-1.5, FR-4.3).
+
+Action keybindings fire immediately, no confirmation prompt (NFR-2 +
+spec §9 Deployment assumptions). The runner respects `self.app.dry_run`
+so a student can experiment safely by toggling 'd'.
+"""
 
 from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
 from ..app import AppContext, format_status_line
+from ..services.control import UnsupportedActionError, execute_action
 from ..tconf.model import Entry
 from ..tconf.resolve import (
     FileAlias,
@@ -17,6 +24,19 @@ from ..tconf.resolve import (
     ResolvedFile,
     ResolvedFileSet,
     resolve,
+)
+
+# Numeric quick-keys for the standard service actions. Order matches the
+# spec FR-1.5 listing so the footer reads start → stop → restart → reload
+# → enable → disable → status from left to right.
+_ACTION_BINDINGS: tuple[tuple[str, str], ...] = (
+    ("1", "start"),
+    ("2", "stop"),
+    ("3", "restart"),
+    ("4", "reload"),
+    ("5", "enable"),
+    ("6", "disable"),
+    ("7", "status"),
 )
 
 
@@ -32,6 +52,10 @@ class EntryScreen(Screen):
     BINDINGS = [
         Binding("enter", "open_focused", "Open file", show=True),
         Binding("backspace,escape", "app.pop_screen", "Back", show=True),
+        *(
+            Binding(key, f"do_action('{action}')", action, show=True)
+            for key, action in _ACTION_BINDINGS
+        ),
     ]
 
     def __init__(self, context: AppContext, entry: Entry):
@@ -95,6 +119,15 @@ class EntryScreen(Screen):
                 )
             yield ListView(*rows, id="files-list")
 
+        if r.actions:
+            yield Static(
+                "Actions: " + "  ".join(
+                    f"[{key}] {action}" for key, action in _ACTION_BINDINGS
+                ),
+                classes="action-hint",
+            )
+            yield Static("", id="action-result", classes="muted")
+
     def on_mount(self) -> None:
         self.title = f"LazyServer · {self.entry.name}"
         self.sub_title = self.entry.id
@@ -123,6 +156,41 @@ class EntryScreen(Screen):
             self.app.push_screen(
                 FileScreen(self.context, self.entry, event.item.payload)
             )
+
+    def action_do_action(self, action_id: str) -> None:
+        """Fire the named service action against the resolved entry.
+
+        Reads `self.app.dry_run` live, so the 'd' toggle takes effect
+        without re-entering the screen. UnsupportedActionError (e.g.
+        pressing 1 on an app entry) is surfaced inline rather than
+        crashing the TUI.
+        """
+        if self.resolved is None or not self.resolved.actions:
+            return
+        try:
+            result_widget = self.query_one("#action-result", Static)
+        except Exception:
+            return
+
+        try:
+            result = execute_action(
+                self.resolved, action_id, dry_run=self.app.dry_run
+            )
+        except UnsupportedActionError as exc:
+            result_widget.update(f"⚠ {exc}")
+            result_widget.set_class(True, "alert")
+            return
+
+        prefix = "(dry-run) " if result.dry_run else ""
+        argv = " ".join(result.argv)
+        outcome = f"exit {result.exit_code}"
+        tail = ""
+        if result.stderr and not result.dry_run:
+            stderr_line = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else ""
+            if stderr_line:
+                tail = f" — {stderr_line[:120]}"
+        result_widget.update(f"▶ {prefix}{argv} → {outcome}{tail}")
+        result_widget.set_class(False, "alert")
 
     @staticmethod
     def _format_file_row(f: ResolvedFile, aliases: tuple[FileAlias, ...]) -> str:
