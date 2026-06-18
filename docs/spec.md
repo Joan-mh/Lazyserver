@@ -205,6 +205,9 @@ machinery.
   defaulting to `~target/.config/lazyserver/config.toml`. The file and its
   parent directory are owned by the target user, so a root-run session never
   leaves root-owned configs behind.
+  A custom `$XDG_CONFIG_HOME` set in the target user's shell is **not honoured**
+  for MVP: a root-run process cannot read the target user's env, so LazyServer
+  always uses `~target/.config/`. Documented limitation, not a bug.
 - **FR-7.3 Default editor.** If `editor` is unset, LazyServer picks the first
   that exists from: `$VISUAL`, `$EDITOR`, `nano`, `vi`. `nano` precedes `vi`
   so a beginner is not trapped in a modal editor on first run.

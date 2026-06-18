@@ -37,6 +37,11 @@ wins and this document is corrected.
 
 - Detect the current distro from `/etc/os-release` (`ID`, `ID_LIKE`).
 - Map to a tconf distro id (`ubuntu`, `arch`, `fedora`, `opensuse`).
+- Exact `ID` match (e.g. `ID=ubuntu`) is a supported distro. Resolution via
+  `ID_LIKE` or an aliased `ID` (e.g. Manjaro→arch, Debian→ubuntu) is handled
+  the same way but **flagged to the user as inferred** — package names and
+  paths are usually but not always identical. Fits the didactic goal: tell
+  the student what we inferred.
 - A **default installer command** per distro id (apt/pacman/dnf/zypper) lets
   tconf files omit `install` and just give `package`. (Data-layer convenience,
   overridable — see schema §4/§5.)
