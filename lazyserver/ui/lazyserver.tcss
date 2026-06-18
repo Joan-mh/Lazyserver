@@ -48,6 +48,20 @@ Screen {
     padding: 1 1 0 1;
 }
 
+.modal-body {
+    background: $surface;
+    padding: 1 2;
+    border: solid $primary;
+    width: 80%;
+    height: auto;
+    max-height: 80%;
+}
+
+.example-scroll {
+    height: auto;
+    max-height: 10;
+}
+
 .alert {
     background: $error 20%;
     color: $error;

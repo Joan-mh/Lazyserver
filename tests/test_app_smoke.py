@@ -311,6 +311,71 @@ async def test_file_screen_edit_under_dry_run_does_not_launch(tmp_path, monkeypa
         assert "dry-run" in result_text
 
 
+async def test_new_file_flow_creates_and_opens_editor(tmp_path, monkeypatch):
+    """Press 'n' on a file_set FileScreen → modal opens with permission
+    preview → submit a name → file is created with the example content and
+    handed straight to the editor."""
+    ctx = _arch_context()
+
+    # Use a writable directory and override one of bind9's file_set dirs
+    # to point at it. Easier than building a synthetic entry.
+    set_dir = tmp_path / "zones"
+    set_dir.mkdir()
+
+    from lazyserver.tconf.resolve import ResolvedFileSet
+    fs = ResolvedFileSet(
+        id="zone_files",
+        directory=str(set_dir),
+        pattern="db.*",
+        description="zone files",
+        example="$TTL 86400\n@ IN SOA x. y. ( 1 1 1 1 1 )\n",
+        optional=True,
+        owner=None,
+        group=None,
+        mode=None,
+    )
+
+    from lazyserver.ui import file_screen as fs_mod
+    from lazyserver.platform.runner import RunResult
+
+    def fake_launch(settings, path, *, dry_run=False, env=None):
+        # Record that the editor was invoked on the freshly created file.
+        captured["edited"] = Path(path)
+        return RunResult(
+            argv=("fake-editor", str(path)),
+            exit_code=0,
+            stdout="",
+            stderr="",
+            duration_s=0.0,
+            dry_run=dry_run,
+        )
+
+    captured: dict = {}
+    monkeypatch.setattr(fs_mod, "launch_editor", fake_launch)
+
+    bind9 = next(e for e in ctx.entries if e.id == "bind9")
+    app = LazyServerApp(ctx)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(fs_mod.FileScreen(ctx, bind9, fs))
+        await pilot.pause()
+        await pilot.press("n")
+        await pilot.pause()
+        # We're on the create modal now. Type a filename and submit.
+        from lazyserver.ui.create_screen import NewFileScreen
+        assert isinstance(app.screen, NewFileScreen)
+        input_widget = app.screen.query_one("#filename-input")
+        input_widget.value = "db.example.lan"
+        await pilot.press("enter")
+        await pilot.pause()
+        # File was created with the example pre-fill.
+        created = set_dir / "db.example.lan"
+        assert created.exists()
+        assert "SOA" in created.read_text()
+        # And the editor was invoked on it.
+        assert captured["edited"] == created
+
+
 async def test_escape_pops_to_home():
     ctx = _arch_context()
     app = LazyServerApp(ctx)

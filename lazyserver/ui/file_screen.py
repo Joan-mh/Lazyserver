@@ -24,6 +24,7 @@ from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
 from ..app import AppContext, format_status_line
 from ..backup.checksums import sha256_of
+from ..backup.create import plan_ownership
 from ..editor import launch_editor
 from ..tconf.model import Entry
 from ..tconf.resolve import ResolvedFile, ResolvedFileSet
@@ -40,6 +41,7 @@ class FileScreen(Screen):
 
     BINDINGS = [
         Binding("enter", "edit_focused", "Edit", show=True),
+        Binding("n", "new_in_set", "New file", show=True),
         Binding("backspace,escape", "app.pop_screen", "Back", show=True),
     ]
 
@@ -126,6 +128,29 @@ class FileScreen(Screen):
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if isinstance(event.item, _SetMemberRow):
             self._edit_path(event.item.path)
+
+    def action_new_in_set(self) -> None:
+        """Open the create modal for a file_set entry (FR-1.7/1.8/1.9)."""
+        if not isinstance(self.payload, ResolvedFileSet):
+            return
+        from .create_screen import NewFileScreen
+
+        fs = self.payload
+        plan = plan_ownership(
+            entry_kind=self.entry.kind,
+            directory=Path(fs.directory),
+            target_user=self.context.target_user,
+            explicit_owner=fs.owner,
+            explicit_group=fs.group,
+            explicit_mode=fs.mode,
+        )
+        screen = NewFileScreen(self.entry, fs, plan, dry_run=self.app.dry_run)
+        self.app.push_screen(screen, self._after_create)
+
+    def _after_create(self, created: Path | None) -> None:
+        if created is None:
+            return
+        self._edit_path(created)
 
     def _edit_path(self, path: Path) -> None:
         before = sha256_of(path)
