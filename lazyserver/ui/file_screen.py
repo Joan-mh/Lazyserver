@@ -13,7 +13,6 @@ Phase 3e.
 
 from __future__ import annotations
 
-import glob
 from pathlib import Path
 
 from textual.app import ComposeResult, SuspendNotSupported
@@ -29,7 +28,7 @@ from ..backup.ownership import reapply as reapply_ownership
 from ..backup.ownership import snapshot as snapshot_ownership
 from ..editor import launch_editor
 from ..tconf.model import Entry
-from ..tconf.resolve import ResolvedFile, ResolvedFileSet
+from ..tconf.resolve import ResolvedFile, ResolvedFileSet, expand_file_set
 
 
 class _SetMemberRow(ListItem):
@@ -90,7 +89,7 @@ class FileScreen(Screen):
             yield Static("Example file", classes="section-title")
             yield Static(fs.example.rstrip(), classes="example")
 
-        members = _expand_set(fs)
+        members = expand_file_set(fs)
         yield Static(
             "Existing files in this set",
             id="set-members-title",
@@ -205,7 +204,7 @@ class FileScreen(Screen):
         except Exception:
             view = None
 
-        members = _expand_set(self.payload)
+        members = expand_file_set(self.payload)
         if view is not None:
             view.clear()
             for p in members:
@@ -246,15 +245,3 @@ def _describe_edit(
     return f"no change: {path}"
 
 
-def _expand_set(fs: ResolvedFileSet) -> list[Path]:
-    """Expand the file_set glob within its resolved directory.
-
-    `**` is honored only if the user wrote it in the pattern (schema §3b).
-    Returns sorted absolute paths, files only.
-    """
-    base = Path(fs.directory)
-    if not base.is_dir():
-        return []
-    recursive = "**" in fs.pattern
-    matches = glob.glob(str(base / fs.pattern), recursive=recursive)
-    return sorted(Path(m) for m in matches if Path(m).is_file())

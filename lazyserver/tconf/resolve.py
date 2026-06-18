@@ -4,13 +4,19 @@ Given an Entry and a target distro id, produce a ResolvedEntry with effective
 file paths, file_set directories, install argv, and the full action argv
 table. App file paths beginning with `~` are expanded against the target
 user's home (FR-1.10, schema §10).
+
+Also exposes `expand_file_set()` — the canonical glob expansion used by
+both the TUI and the backup scanner (FR-1.6). Globs are *not* cached;
+each call walks the filesystem, so files created after an entry was
+defined are picked up immediately.
 """
 
 from __future__ import annotations
 
+import glob as _glob
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from ..platform.user import TargetUser
 from . import defaults
@@ -299,6 +305,26 @@ def _and_join(items: tuple[str, ...]) -> str:
     if len(items) == 2:
         return f"{items[0]!r} and {items[1]!r}"
     return ", ".join(repr(x) for x in items[:-1]) + f", and {items[-1]!r}"
+
+
+def expand_file_set(fs: ResolvedFileSet) -> list[Path]:
+    """Glob a file_set against the current filesystem state (FR-1.6).
+
+    Returns sorted absolute paths, files only. `**` is honored only if
+    the user wrote it in the pattern (schema §3b). An absent directory
+    yields the empty list — the set is just not yet populated, not an
+    error.
+
+    Called fresh on every backup scan and every TUI refresh so files
+    created after the entry was defined are caught (the live-VM bug fix
+    in FileScreen + the FR-1.6 backup-time expansion both rely on this).
+    """
+    base = Path(fs.directory)
+    if not base.is_dir():
+        return []
+    recursive = "**" in fs.pattern
+    matches = _glob.glob(str(base / fs.pattern), recursive=recursive)
+    return sorted(Path(m) for m in matches if Path(m).is_file())
 
 
 def _expand_user(
