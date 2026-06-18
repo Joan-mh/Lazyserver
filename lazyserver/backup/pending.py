@@ -55,12 +55,23 @@ SCHEMA_VERSION = 1
 
 @dataclass(frozen=True)
 class Baseline:
-    """One ledger row: the sha at last backup + provenance."""
+    """One ledger row: the sha at last backup + provenance.
+
+    ``orig_uid`` / ``orig_gid`` / ``orig_mode`` record the *source*
+    file's ownership at the moment we snapshotted it — not the backup
+    store's ownership. Phase 5 restore uses these to put the file back
+    as e.g. ``bind:bind 0640``, not ``<target_user> 0644``. Optional
+    fields default to None for backward-compatibility with v1 records
+    written before Phase 4c.
+    """
 
     sha256: str
     snapshot: str          # timestamp dir, e.g. "20260618-103045"
     file_id: str           # the originating tconf id (file or set)
     set_id: str | None     # None for fixed files; == file_id for set members
+    orig_uid: int | None = None
+    orig_gid: int | None = None
+    orig_mode: int | None = None  # permission bits only, e.g. 0o640
 
 
 class BaselineStore:
@@ -137,12 +148,21 @@ class BaselineStore:
 
     def set(self, entry_id: str, path: Path, baseline: Baseline) -> None:
         bucket = self._entries.setdefault(entry_id, {"files": {}})
-        bucket["files"][str(path)] = {
+        rec: dict = {
             "sha256": baseline.sha256,
             "snapshot": baseline.snapshot,
             "file_id": baseline.file_id,
             "set_id": baseline.set_id,
         }
+        # Omit the orig_* keys when not captured so legacy ledger files
+        # stay tidy and the schema remains additive.
+        if baseline.orig_uid is not None:
+            rec["orig_uid"] = baseline.orig_uid
+        if baseline.orig_gid is not None:
+            rec["orig_gid"] = baseline.orig_gid
+        if baseline.orig_mode is not None:
+            rec["orig_mode"] = baseline.orig_mode
+        bucket["files"][str(path)] = rec
 
     def iter_entry(self, entry_id: str) -> Iterator[tuple[Path, Baseline]]:
         files = self._entries.get(entry_id, {}).get("files", {})
@@ -156,6 +176,9 @@ def _baseline_from_record(rec: dict) -> Baseline:
         snapshot=rec["snapshot"],
         file_id=rec["file_id"],
         set_id=rec.get("set_id"),
+        orig_uid=rec.get("orig_uid"),
+        orig_gid=rec.get("orig_gid"),
+        orig_mode=rec.get("orig_mode"),
     )
 
 
