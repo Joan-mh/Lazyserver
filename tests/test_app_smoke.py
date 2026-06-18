@@ -227,6 +227,90 @@ async def test_app_entry_action_keys_noop():
         assert has_widget is False
 
 
+async def test_file_screen_edit_detects_modification(tmp_path, monkeypatch):
+    """Enter on a fixed file edits it; the resulting checksum delta is
+    reported in the edit-result widget. We monkeypatch launch_editor to
+    simulate a user changing the file's contents."""
+    ctx = _arch_context()
+
+    # A real existing file to edit.
+    target = tmp_path / "named.conf"
+    target.write_text("options { recursion yes; };\n", encoding="utf-8")
+
+    from lazyserver.ui import file_screen as fs_mod
+    from lazyserver.platform.runner import RunResult
+
+    def fake_launch(settings, path, *, dry_run=False, env=None):
+        if not dry_run:
+            Path(path).write_text("options { recursion no; };\n", encoding="utf-8")
+        return RunResult(
+            argv=("fake-editor", str(path)),
+            exit_code=0,
+            stdout="",
+            stderr="",
+            duration_s=0.0,
+            dry_run=dry_run,
+        )
+
+    monkeypatch.setattr(fs_mod, "launch_editor", fake_launch)
+
+    # Build a ResolvedFile directly and push the screen.
+    from lazyserver.tconf.resolve import ResolvedFile
+    rf = ResolvedFile(
+        id="named_conf",
+        path=str(target),
+        description="x",
+        example=None,
+        optional=False,
+    )
+    bind9 = next(e for e in ctx.entries if e.id == "bind9")
+    app = LazyServerApp(ctx)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(fs_mod.FileScreen(ctx, bind9, rf))
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        result_text = app.screen.query_one("#edit-result").content
+        assert "modified" in result_text
+        assert str(target) in result_text
+
+
+async def test_file_screen_edit_under_dry_run_does_not_launch(tmp_path, monkeypatch):
+    ctx = _arch_context()
+    target = tmp_path / "named.conf"
+    target.write_text("original\n", encoding="utf-8")
+
+    from lazyserver.ui import file_screen as fs_mod
+    from lazyserver.tconf.resolve import ResolvedFile
+
+    calls = []
+    original = fs_mod.launch_editor
+
+    def tracking_launch(*args, **kwargs):
+        calls.append(kwargs.get("dry_run"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(fs_mod, "launch_editor", tracking_launch)
+
+    rf = ResolvedFile(
+        id="named_conf", path=str(target), description="x", example=None, optional=False
+    )
+    bind9 = next(e for e in ctx.entries if e.id == "bind9")
+    app = LazyServerApp(ctx, dry_run=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(fs_mod.FileScreen(ctx, bind9, rf))
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        # Editor was called with dry_run=True and the file is untouched.
+        assert calls == [True]
+        assert target.read_text() == "original\n"
+        result_text = app.screen.query_one("#edit-result").content
+        assert "dry-run" in result_text
+
+
 async def test_escape_pops_to_home():
     ctx = _arch_context()
     app = LazyServerApp(ctx)

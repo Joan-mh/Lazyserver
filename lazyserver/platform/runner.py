@@ -41,11 +41,15 @@ def run(
     timeout: float | None = None,
     check: bool = False,
     dry_run: bool = False,
+    capture: bool = True,
 ) -> RunResult:
     """Run argv and return a RunResult.
 
     With dry_run=True, no process is spawned; a synthetic successful result is
     returned so callers can be exercised in tests without touching the system.
+
+    `capture=False` lets the child inherit stdin/stdout/stderr — needed for
+    interactive programs like `$EDITOR` that must talk to the terminal.
     """
     if not argv:
         raise ValueError("run() requires a non-empty argv.")
@@ -69,16 +73,16 @@ def run(
         cwd=str(cwd) if cwd is not None else None,
         env=env,
         timeout=timeout,
-        capture_output=True,
-        text=True,
+        capture_output=capture,
+        text=True if capture else False,
         check=False,
     )
     duration = time.monotonic() - started
     result = RunResult(
         argv=argv_tuple,
         exit_code=completed.returncode,
-        stdout=completed.stdout or "",
-        stderr=completed.stderr or "",
+        stdout=completed.stdout or "" if capture else "",
+        stderr=completed.stderr or "" if capture else "",
         duration_s=duration,
         dry_run=False,
     )
