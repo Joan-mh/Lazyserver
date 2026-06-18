@@ -112,6 +112,16 @@ machinery.
   directory are stored for the session and used for: expanding `~` in app file
   paths, and owning app files created or restored (FR-1.8). Service files are
   unaffected — they use system ownership.
+- **FR-1.11 Preserve ownership across edits.** Editing a file via FR-1.3 must
+  not change its owner, group, or mode. LazyServer captures the file's
+  `stat()` before launching the editor and reapplies `chown`/`chmod` after the
+  editor returns, so a root-run session editing e.g. `/etc/named.conf` leaves
+  the file owned by `bind:bind` (or whatever owned it before), not `root:root`.
+  This is defensive against editors that save by writing to a temp file and
+  `rename(2)`ing over the target: that pattern silently inherits the running
+  process's uid/gid and the umask-default mode, losing the original ownership.
+  If the file did not exist before the edit, the FR-1.7/FR-1.8 create flow
+  applies instead.
 
 ### FR-2 Backup
 
@@ -236,9 +246,15 @@ machinery.
   automatic pre-restore snapshot, not from "are you sure?" prompts.
   A deployment outside that context should reconsider this trade-off.
 - **NFR-3 Privilege.** Editing system config and controlling services needs
-  root. LazyServer is expected to run via `sudo`/as root; it must fail with a
-  clear message if it lacks the privileges an action needs, rather than
-  half-completing it.
+  root. LazyServer **requires root at startup**: if `geteuid() != 0` it exits
+  immediately with a clear actionable message ("Run with `sudo lazyserver`")
+  and a non-zero exit code — never a traceback. This is checked once at
+  startup so a session is never half-privileged. The corollary is that
+  LazyServer is then capable of `chown`ing files to other users, which it
+  must do *deliberately*: created files use the FR-1.8 ownership plan, and
+  edited files preserve their original ownership (FR-1.11). A root-run
+  session must never leave a root-owned file where another user/service
+  should own it.
 - **NFR-4 Minimal dependencies.** Prefer the Python standard library and a
   single TUI toolkit; keep install over SSH simple.
 - **NFR-5 Clear errors.** Every failed action explains what failed and why.
