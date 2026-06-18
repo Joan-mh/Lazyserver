@@ -48,19 +48,23 @@ class AppContext:
     def apps(self) -> tuple[Entry, ...]:
         return tuple(e for e in self.entries if e.is_app)
 
-    @property
-    def status_line(self) -> str:
-        """One-line summary shown in the footer, including inference warnings."""
-        bits = [
-            f"distro: {self.distro.id}",
-            f"user: {self.target_user.name}",
-            f"entries: {len(self.services)}s+{len(self.apps)}a",
+def format_status_line(context: "AppContext", *, dry_run: bool) -> str:
+    """One-line footer summary, including dry-run + inference warnings."""
+    bits: list[str] = []
+    if dry_run:
+        bits.append("DRY-RUN")
+    bits.extend(
+        [
+            f"distro: {context.distro.id}",
+            f"user: {context.target_user.name}",
+            f"entries: {len(context.services)}s+{len(context.apps)}a",
         ]
-        line = "  ·  ".join(bits)
-        notice = self.distro.inference_notice()
-        if notice:
-            line = f"{line}    ⚠ {notice}"
-        return line
+    )
+    line = "  ·  ".join(bits)
+    notice = context.distro.inference_notice()
+    if notice:
+        line = f"{line}    ⚠ {notice}"
+    return line
 
 
 def bootstrap() -> AppContext:
@@ -118,11 +122,13 @@ class LazyServerApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
         Binding("escape", "pop_or_quit", "Back", show=True, priority=True),
+        Binding("d", "toggle_dry_run", "Dry-run", show=True),
     ]
 
-    def __init__(self, context: AppContext):
+    def __init__(self, context: AppContext, *, dry_run: bool = False):
         super().__init__()
         self.context = context
+        self.dry_run = dry_run
 
     def on_mount(self) -> None:
         # Import locally to keep `app.py` import-light for non-TUI consumers.
@@ -137,9 +143,22 @@ class LazyServerApp(App):
         else:
             self.exit()
 
+    def action_toggle_dry_run(self) -> None:
+        """Flip session dry-run; refresh every visible status line."""
+        from textual.widgets import Static
 
-def run() -> int:
+        self.dry_run = not self.dry_run
+        new_text = format_status_line(self.context, dry_run=self.dry_run)
+        for screen in self.screen_stack:
+            try:
+                screen.query_one("#status-line", Static).update(new_text)
+            except Exception:
+                # Screens without a status-line (the default Screen) are fine.
+                pass
+
+
+def run(*, dry_run: bool = False) -> int:
     """Launch the TUI. Returns the process exit code."""
     context = bootstrap()
-    LazyServerApp(context).run()
+    LazyServerApp(context, dry_run=dry_run).run()
     return 0

@@ -14,6 +14,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Configure, back up, restore, and learn about Linux services.",
     )
     parser.add_argument("--version", action="version", version=f"lazyserver {__version__}")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Resolve and display commands without executing them.",
+    )
     sub = parser.add_subparsers(dest="command")
 
     recover = sub.add_parser(
@@ -33,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         from .app import BootstrapError, run
 
         try:
-            return run()
+            return run(dry_run=args.dry_run)
         except BootstrapError as exc:
             print(f"lazyserver: {exc}", file=sys.stderr)
             return 1

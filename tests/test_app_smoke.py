@@ -149,6 +149,32 @@ async def test_inferred_distro_notice_appears_in_status_line():
         assert "⚠" in status
 
 
+async def test_dry_run_flag_shows_indicator_in_status_line():
+    ctx = _arch_context()
+    app = LazyServerApp(ctx, dry_run=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        status = app.screen.query_one("#status-line").content
+        assert "DRY-RUN" in status
+
+
+async def test_d_key_toggles_dry_run():
+    ctx = _arch_context()
+    app = LazyServerApp(ctx)  # starts with dry_run=False
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        before = app.screen.query_one("#status-line").content
+        assert "DRY-RUN" not in before
+        await pilot.press("d")
+        await pilot.pause()
+        assert app.dry_run is True
+        after = app.screen.query_one("#status-line").content
+        assert "DRY-RUN" in after
+        await pilot.press("d")
+        await pilot.pause()
+        assert app.dry_run is False
+
+
 async def test_escape_pops_to_home():
     ctx = _arch_context()
     app = LazyServerApp(ctx)

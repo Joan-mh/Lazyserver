@@ -8,7 +8,7 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
-from ..app import AppContext
+from ..app import AppContext, format_status_line
 from ..tconf.model import Entry
 
 
@@ -45,7 +45,10 @@ class HomeScreen(Screen):
                 *(_EntryItem(e) for e in self.context.apps),
                 id="apps-list",
             )
-            yield Static(self.context.status_line, id="status-line")
+            yield Static(
+                format_status_line(self.context, dry_run=self.app.dry_run),
+                id="status-line",
+            )
         yield Footer()
 
     def on_mount(self) -> None:

@@ -8,7 +8,7 @@ from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
-from ..app import AppContext
+from ..app import AppContext, format_status_line
 from ..tconf.model import Entry
 from ..tconf.resolve import ResolvedFile, ResolvedFileSet
 
@@ -38,7 +38,10 @@ class FileScreen(Screen):
                 yield from self._compose_file(self.payload)
             else:
                 yield from self._compose_file_set(self.payload)
-            yield Static(self.context.status_line, id="status-line")
+            yield Static(
+                format_status_line(self.context, dry_run=self.app.dry_run),
+                id="status-line",
+            )
         yield Footer()
 
     def _compose_file(self, f: ResolvedFile):
