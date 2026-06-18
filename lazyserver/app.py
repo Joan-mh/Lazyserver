@@ -9,6 +9,7 @@ screens.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,6 +29,23 @@ log = logging.getLogger("lazyserver.app")
 
 class BootstrapError(RuntimeError):
     """A fatal error during startup; the CLI prints and exits non-zero."""
+
+
+def check_root_privilege(geteuid=None) -> None:
+    """Refuse to start unless we are euid 0 (NFR-3).
+
+    Checked once at startup so a session is never half-privileged: editing
+    `/etc/...` or controlling services without root would silently fail
+    later. `geteuid` is injectable for tests; when omitted, we look up
+    `os.geteuid` *at call time* so monkeypatching `app.os.geteuid` in a
+    test works.
+    """
+    fn = geteuid if geteuid is not None else os.geteuid
+    if fn() != 0:
+        raise BootstrapError(
+            "lazyserver must run as root. Re-run with `sudo lazyserver` "
+            "(or `sudo lsrv`)."
+        )
 
 
 @dataclass(frozen=True)
@@ -75,6 +93,7 @@ def bootstrap() -> AppContext:
     override the target_user (read once more if so), and finally we load
     tconf folders with the bundled defaults prepended.
     """
+    check_root_privilege()
     try:
         target_user = resolve_target_user()
     except TargetUserError as exc:
