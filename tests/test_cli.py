@@ -62,3 +62,36 @@ def test_module_entry_runs_version():
         check=True,
     )
     assert __version__ in result.stdout
+
+
+def test_malformed_config_toml_exits_cleanly(tmp_path, capsys, monkeypatch):
+    """A TOML syntax error in config.toml must surface as a clean
+    stderr line + exit 1, never as a raw traceback (NFR-5)."""
+    from pathlib import Path
+
+    from lazyserver import app as app_module
+    from lazyserver.platform.distro import Distro
+    from lazyserver.platform.user import TargetUser
+
+    bad = tmp_path / "config.toml"
+    bad.write_text('editor = "unterminated\n', encoding="utf-8")
+    user = TargetUser(name="alice", uid=1000, gid=1000, home=tmp_path)
+
+    monkeypatch.setattr(app_module, "check_root_privilege", lambda: None)
+    monkeypatch.setattr(app_module, "resolve_target_user", lambda *a, **kw: user)
+    monkeypatch.setattr(app_module, "default_path", lambda u: bad)
+    # Stub distro detection — irrelevant past this point because we
+    # never reach it (settings load fails first).
+    monkeypatch.setattr(
+        app_module,
+        "detect_distro",
+        lambda: Distro(id="ubuntu", pretty_name="Ubuntu", raw_id="ubuntu", raw_id_like=(), inferred=False),
+    )
+
+    assert cli.main([]) == 1
+    err = capsys.readouterr().err
+    assert str(bad) in err
+    assert "delete" in err.lower()
+    # No raw exception class names leaking through.
+    assert "Traceback" not in err
+    assert "TOMLDecodeError" not in err

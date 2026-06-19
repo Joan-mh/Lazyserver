@@ -16,7 +16,7 @@ from pathlib import Path
 from textual.app import App
 from textual.binding import Binding
 
-from .config import Settings, default_path, load as load_settings
+from .config import ConfigError, Settings, default_path, load as load_settings
 from .platform.distro import Distro, detect as detect_distro
 from .platform.user import TargetUser, TargetUserError
 from .platform.user import resolve as resolve_target_user
@@ -99,7 +99,10 @@ def bootstrap() -> AppContext:
     except TargetUserError as exc:
         raise BootstrapError(str(exc)) from exc
 
-    settings = load_settings(default_path(target_user))
+    try:
+        settings = load_settings(default_path(target_user))
+    except ConfigError as exc:
+        raise BootstrapError(str(exc)) from exc
 
     if settings.target_user and settings.target_user != target_user.name:
         try:

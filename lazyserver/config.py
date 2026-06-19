@@ -22,6 +22,15 @@ CONFIG_FILENAME = "config.toml"
 EDITOR_FALLBACKS = ("nano", "vi")
 
 
+class ConfigError(ValueError):
+    """Settings file could not be loaded or parsed (FR-7, NFR-5).
+
+    Raised so bootstrap can surface a clean stderr message instead of
+    letting a raw TOMLDecodeError traceback hit the student. Carries
+    the user-facing message in ``str(exc)``.
+    """
+
+
 @dataclass(frozen=True)
 class Settings:
     editor: str | None = None
@@ -45,11 +54,26 @@ def default_path(user: TargetUser) -> Path:
 
 
 def load(path: Path) -> Settings:
-    """Load settings from `path`. Missing file → defaults."""
+    """Load settings from `path`. Missing file → defaults.
+
+    A malformed TOML file raises ``ConfigError`` with a user-facing
+    message: the file path and the parser's description (which on
+    Python 3.11+ includes the line/column). The recovery hint tells
+    students they can delete the file to start fresh — important
+    because they otherwise can't launch the app to fix it from the
+    TUI.
+    """
     if not path.exists():
         return Settings()
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
+    try:
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(
+            f"failed to parse {path}: {exc}\n"
+            "Fix the TOML syntax, or delete the file to start fresh "
+            "with defaults."
+        ) from exc
     return Settings(
         editor=_as_str(data.get("editor")),
         backup_store=_as_str(data.get("backup_store")),
