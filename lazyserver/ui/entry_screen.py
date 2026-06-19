@@ -25,6 +25,11 @@ from ..tconf.resolve import (
     ResolvedFileSet,
     resolve,
 )
+from .command_output import (
+    CommandOutputModal,
+    format_inline_action_summary,
+    should_show_output_modal,
+)
 
 # Numeric quick-keys for the standard service actions. Order matches the
 # spec FR-1.5 listing so the footer reads start → stop → restart → reload
@@ -163,7 +168,9 @@ class EntryScreen(Screen):
         Reads `self.app.dry_run` live, so the 'd' toggle takes effect
         without re-entering the screen. UnsupportedActionError (e.g.
         pressing 1 on an app entry) is surfaced inline rather than
-        crashing the TUI.
+        crashing the TUI. The inline line records what happened; for
+        status and failures the full captured output is also shown in
+        a scrollable modal (NFR-5).
         """
         if self.resolved is None or not self.resolved.actions:
             return
@@ -181,16 +188,23 @@ class EntryScreen(Screen):
             result_widget.set_class(True, "alert")
             return
 
-        prefix = "(dry-run) " if result.dry_run else ""
-        argv = " ".join(result.argv)
-        outcome = f"exit {result.exit_code}"
-        tail = ""
-        if result.stderr and not result.dry_run:
-            stderr_line = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else ""
-            if stderr_line:
-                tail = f" — {stderr_line[:120]}"
-        result_widget.update(f"▶ {prefix}{argv} → {outcome}{tail}")
-        result_widget.set_class(False, "alert")
+        text, is_alert = format_inline_action_summary(
+            self.entry.name, action_id, result
+        )
+        result_widget.update(text)
+        result_widget.set_class(is_alert, "alert")
+
+        if should_show_output_modal(action_id, result):
+            self.app.push_screen(
+                CommandOutputModal(
+                    title=f"{self.entry.name} · {action_id}",
+                    argv=result.argv,
+                    exit_code=result.exit_code,
+                    duration_s=result.duration_s,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
+            )
 
     @staticmethod
     def _format_file_row(f: ResolvedFile, aliases: tuple[FileAlias, ...]) -> str:

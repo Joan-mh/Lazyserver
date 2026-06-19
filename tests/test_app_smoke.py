@@ -195,8 +195,9 @@ async def test_action_keys_fire_resolved_argv_under_dry_run():
         await pilot.press("4")
         await pilot.pause()
         result_text = app.screen.query_one("#action-result").content
+        # Dry-run inline shows the would-be argv verbatim, no exit
+        # code (there's no real outcome to report).
         assert "systemctl reload named" in result_text
-        assert "exit 0" in result_text
         assert "(dry-run)" in result_text
 
 

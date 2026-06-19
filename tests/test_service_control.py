@@ -39,15 +39,26 @@ def test_bind9_start_dry_run(distro_id, expected_unit):
 
 
 @pytest.mark.parametrize(
-    "action", ["start", "stop", "restart", "reload", "enable", "disable", "status"]
+    "action,expected_argv",
+    [
+        ("start", ("systemctl", "start", "nginx")),
+        ("stop", ("systemctl", "stop", "nginx")),
+        ("restart", ("systemctl", "restart", "nginx")),
+        ("reload", ("systemctl", "reload", "nginx")),
+        ("enable", ("systemctl", "enable", "nginx")),
+        ("disable", ("systemctl", "disable", "nginx")),
+        # status carries --no-pager so captured stdout is the full
+        # text rather than a less-driven empty buffer.
+        ("status", ("systemctl", "--no-pager", "status", "nginx")),
+    ],
 )
-def test_every_destructive_and_safe_action_resolves_under_dry_run(action):
+def test_every_destructive_and_safe_action_resolves_under_dry_run(action, expected_argv):
     """All 7 standard actions wire through end-to-end under dry-run, no
     confirmation, no subprocess."""
     r = resolve(_entry("nginx"), "ubuntu")
     result = execute_action(r, action, dry_run=True)
     assert result.dry_run is True
-    assert result.argv == ("systemctl", action, "nginx")
+    assert result.argv == expected_argv
 
 
 def test_distro_difference_visible_in_argv():

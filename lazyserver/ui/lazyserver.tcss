@@ -62,6 +62,16 @@ Screen {
     max-height: 10;
 }
 
+.command-output-scroll {
+    height: auto;
+    max-height: 24;
+    margin: 1 0 0 0;
+}
+
+.command-output-text {
+    padding: 0 1;
+}
+
 .alert {
     background: $error 20%;
     color: $error;

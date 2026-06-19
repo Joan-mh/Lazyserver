@@ -29,7 +29,11 @@ ACTION_TEMPLATES: dict[str, dict[str, tuple[str, ...]]] = {
         "reload": ("systemctl", "reload", "{unit}"),
         "enable": ("systemctl", "enable", "{unit}"),
         "disable": ("systemctl", "disable", "{unit}"),
-        "status": ("systemctl", "status", "{unit}"),
+        # --no-pager so captured stdout is the full text, not a
+        # `less`-driven empty buffer when invoked under a non-tty
+        # subprocess. Modern systemctl skips paging without a tty
+        # anyway; this is explicit belt-and-braces.
+        "status": ("systemctl", "--no-pager", "status", "{unit}"),
     },
 }
 
