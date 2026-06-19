@@ -10,18 +10,29 @@ Two implementations:
                                     under <root>/<entry_id>/<ts>/<path>.
   ``store_git.GitBackupStore``       Same on-disk layout wrapped in a
                                     git repo; each backup operation is
-                                    one commit. Added in 4d.
+                                    one commit.
 
 Read-side methods (list_snapshots, list_files, read) are stubbed in
 this contract so Phase 5 restore can program against the interface
 without further changes.
+
+``make_backup_store`` is the FR-2.5 startup-detection factory: it
+returns the git-backed store when the ``git`` binary is on PATH and
+the plain store otherwise. Callers (CLI, TUI, recovery) use the
+factory rather than instantiating a concrete store.
 """
 
 from __future__ import annotations
 
+import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+from ..platform.user import TargetUser
+
+log = logging.getLogger("lazyserver.backup.store")
 
 
 @dataclass(frozen=True)
@@ -69,3 +80,42 @@ class BackupStore(Protocol):
 
     def read(self, ref: SnapshotRef) -> bytes:
         """Return the stored content for one SnapshotRef."""
+
+    def commit_operation(self, *, message: str) -> None:
+        """Finalize a backup operation in the store's history.
+
+        Called once per backup operation, after every ``snapshot`` for
+        that operation has run and the baseline ledger has been
+        persisted. Implementations that have no history layer
+        (PlainBackupStore) make this a no-op; the git store stages all
+        new/modified paths and records one commit. Idempotent: a
+        commit_operation call with nothing to commit must not fail.
+
+        Errors must be logged but not raised: the snapshot content is
+        already on disk in the plain layout, so a failed commit is a
+        history-only loss, not a data loss. Keeping it non-raising
+        means the worker's success/failure reports reflect actual
+        snapshot outcomes, not enhancement-layer noise.
+        """
+
+
+def make_backup_store(
+    root: Path, target_user: TargetUser | None = None
+) -> "BackupStore":
+    """Return the right BackupStore for this machine (FR-2.5).
+
+    Decision is taken once at startup based on whether the ``git`` CLI
+    is installed. We do not consult ``<root>/.git`` here: an existing
+    git repo with no ``git`` binary still has to fall back to plain
+    (no way to operate it), and an empty root with ``git`` available
+    is the common first-run case (GitBackupStore lazily initialises
+    the repo).
+    """
+    if shutil.which("git"):
+        from .store_git import GitBackupStore
+
+        return GitBackupStore(root=root, target_user=target_user)
+    from .store_plain import PlainBackupStore
+
+    log.info("git not on PATH: using PlainBackupStore at %s", root)
+    return PlainBackupStore(root=root, target_user=target_user)

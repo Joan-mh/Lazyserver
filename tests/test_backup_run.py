@@ -331,6 +331,7 @@ class _FakeStore:
     def list_snapshots(self, entry_id): return self.inner.list_snapshots(entry_id)
     def list_files(self, entry_id, timestamp): return self.inner.list_files(entry_id, timestamp)
     def read(self, ref): return self.inner.read(ref)
+    def commit_operation(self, *, message): return None
 
 
 def test_partial_failure_leaves_baselines_coherent(tmp_path: Path):

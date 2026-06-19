@@ -193,5 +193,10 @@ def _execute(
 
     if pending_baseline_updates:
         baselines.save()
+        # Finalise this operation in the store's history layer. No-op
+        # on PlainBackupStore; one commit on GitBackupStore. Per
+        # Protocol contract, commit_operation never raises — a history
+        # failure does not invalidate the snapshot content on disk.
+        store.commit_operation(message=f"backup {timestamp}")
 
     return reports

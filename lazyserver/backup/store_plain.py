@@ -83,6 +83,10 @@ class PlainBackupStore:
     def read(self, ref: SnapshotRef) -> bytes:
         return ref.stored_path.read_bytes()
 
+    def commit_operation(self, *, message: str) -> None:
+        # No history layer; nothing to finalize. See BackupStore Protocol.
+        return None
+
     # ---------- internal ----------
 
     def _stored_path(self, entry_id: str, timestamp: str, source: Path) -> Path:
