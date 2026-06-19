@@ -48,14 +48,14 @@ checklist item as a unit of work tied back to a requirement in `spec.md`.
 
 ## Phase 4 — Backup
 
-- [ ] SHA-256 baseline + checksum change detection — FR-2.1.
-- [ ] Pending set that accumulates across sessions — FR-2.2.
-- [ ] Backup store behind one interface: build `PlainBackupStore` first (always
+- [x] SHA-256 baseline + checksum change detection — FR-2.1.
+- [x] Pending set that accumulates across sessions — FR-2.2.
+- [x] Backup store behind one interface: build `PlainBackupStore` first (always
       works), then add `GitBackupStore` as the enhancement; detect git at
       startup — FR-2.5.
-- [ ] Backup by pending / by files / by entries — FR-2.3/2.4.
-- [ ] Expand file_set globs at backup time so new user-created files are caught — FR-1.6.
-- **Done when:** edits show up as pending; backing up clears them; history is in git.
+- [x] Backup by pending / by files / by entries — FR-2.3/2.4.
+- [x] Expand file_set globs at backup time so new user-created files are caught — FR-1.6.
+- **Done when:** edits show up as pending; backing up clears them; history is in git. ✓ VM-verified.
 
 ## Phase 5 — Restore
 

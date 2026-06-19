@@ -59,6 +59,28 @@ are shown). Features 2 and 3 are v2.0+.
 
 ---
 
+## Phase 4e.1 — EntryScreen `b` opens Backup filtered to current entry
+
+**Status:** deferred (small follow-up to Phase 4e)
+**Raised:** Phase 4e design pass.
+**Relates to:** FR-2.3 (per-entry scope), `ui/backup_screen.py`, `ui/entry_screen.py`.
+
+When the student is reading about bind9 on the EntryScreen, pressing `b`
+currently opens the Backup screen with every visible entry. The smoother
+flow is "I'm here, back up THIS one" — `b` from EntryScreen would push
+BackupScreen with the entry pre-selected (or filtered to just it).
+
+**Why deferred:** clean implementation needs a filter/preselect parameter on
+BackupScreen plus a decision about whether it filters the *view* or pre-fills
+the *selection*. Worth a small design pass, not worth blocking 4e on.
+
+**If revisited:** add `entry_id: str | None = None` to `BackupScreen.__init__`;
+on EntryScreen, bind `b` to push `BackupScreen(context, entry_id=self.entry.id)`.
+View-filter is probably the right call (less surprising than auto-selecting
+files the student didn't pick).
+
+---
+
 ## (template for the next parked idea)
 
 **Status:** deferred to [version / phase]
