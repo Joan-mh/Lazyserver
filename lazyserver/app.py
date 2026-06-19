@@ -142,6 +142,7 @@ class LazyServerApp(App):
         Binding("q", "quit", "Quit", show=True),
         Binding("escape", "pop_or_quit", "Back", show=True, priority=True),
         Binding("d", "toggle_dry_run", "Dry-run", show=True),
+        Binding("b", "open_backup", "Backup", show=True),
     ]
 
     def __init__(self, context: AppContext, *, dry_run: bool = False):
@@ -161,6 +162,18 @@ class LazyServerApp(App):
             self.pop_screen()
         else:
             self.exit()
+
+    def action_open_backup(self) -> None:
+        """Push the backup screen on top from anywhere.
+
+        No-op if it's already the active screen so repeated 'b'
+        presses don't stack identical screens.
+        """
+        from .ui.backup_screen import BackupScreen
+
+        if isinstance(self.screen, BackupScreen):
+            return
+        self.push_screen(BackupScreen(self.context))
 
     def action_toggle_dry_run(self) -> None:
         """Flip session dry-run; refresh every visible status line."""
