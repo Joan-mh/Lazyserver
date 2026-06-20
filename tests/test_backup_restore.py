@@ -460,6 +460,44 @@ def test_pre_snapshot_failure_aborts_overwrite(tmp_path):
     assert src.read_bytes() == b"edited-after-backup"
 
 
+def test_take_pre_restore_false_skips_snapshot_even_when_live_exists(tmp_path):
+    """Phase 6 recovery passes take_pre_restore=False: on a fresh box,
+    the live file is the stock vendor copy the package manager just
+    laid down. Snapshotting that as a "pre-restore" handle would
+    pollute the store with vendor bytes. The overwrite still happens
+    (we want the user's config back), the pre-snapshot just does not."""
+    src = tmp_path / "smoke.conf"
+    src.write_bytes(b"original")
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    resolved_map, store = _backup_one_round(tmp_path, src, store_root)
+    # Stock vendor copy on disk after apt-get install.
+    src.write_bytes(b"vendor-stock")
+
+    plan = plan_restore(
+        selection=RestoreSelection(
+            entry_ids=("smoke",), file_paths=None,
+            snapshot_choice=SnapshotChoice.latest_all(),
+        ),
+        resolved_entries=resolved_map,
+        store=store,
+    )
+    baselines = BaselineStore.load(store_root, target_user=_self_user())
+    reports = execute_restore(
+        plan, store=store, baselines=baselines,
+        resolved_entries=resolved_map, target_user=_self_user(),
+        pre_restore_timestamp="t2",
+        take_pre_restore=False,
+    )
+    # Restore still wrote the file.
+    assert reports[0].outcome is RestoreOutcome.RESTORED
+    assert reports[0].pre_snapshot_ref is None
+    assert src.read_bytes() == b"original"
+    # No pre-restore dir landed in the store.
+    pre_dir = store_root / "smoke" / f"t2{PRE_RESTORE_SUFFIX}"
+    assert not pre_dir.exists(), "take_pre_restore=False must not create the dir"
+
+
 def test_restore_with_no_pre_existing_live_file_skips_pre_snapshot(tmp_path):
     """If the live file is gone (e.g. mid-recovery), there's nothing to
     pre-snapshot. Restore must still write the file fresh — there's

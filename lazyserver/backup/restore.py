@@ -387,6 +387,7 @@ def execute_restore(
     resolved_entries: dict[str, ResolvedEntry],
     target_user: TargetUser,
     pre_restore_timestamp: str,
+    take_pre_restore: bool = True,
 ) -> list[RestoreReport]:
     """Run the plan with the FR-3.2 safety contract.
 
@@ -402,6 +403,13 @@ def execute_restore(
 
     Each ``FileSetExtra`` becomes one EXTRA_REPORTED report row,
     consumed by callers for the post-restore summary (FR-3.4).
+
+    ``take_pre_restore`` defaults to True (FR-3.2 safety contract for
+    interactive restore). The recovery orchestrator passes False — on
+    a freshly installed box the "live" file is the stock vendor copy
+    the package manager just laid down, and snapshotting that as a
+    pre-restore handle pollutes the store with vendor bytes for an
+    undo nobody will ever invoke.
     """
     reports: list[RestoreReport] = []
     pre_restore_ts = f"{pre_restore_timestamp}{PRE_RESTORE_SUFFIX}"
@@ -411,7 +419,7 @@ def execute_restore(
     for item in plan.items:
         # ---- 1. pre-restore snapshot (safety gate) ----
         pre_ref: SnapshotRef | None = None
-        if item.source_path.exists():
+        if take_pre_restore and item.source_path.exists():
             try:
                 pre_ref = _take_pre_snapshot(
                     store=store,
