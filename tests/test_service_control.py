@@ -15,8 +15,11 @@ import pytest
 
 from lazyserver.platform.user import TargetUser
 from lazyserver.services.control import (
+    DEFAULT_INSTALL_TIMEOUT_S,
+    NoInstallCommandError,
     UnsupportedActionError,
     execute_action,
+    execute_install,
 )
 from lazyserver.tconf import bundled_tconf_path, loader
 from lazyserver.tconf.resolve import resolve
@@ -82,6 +85,78 @@ def test_app_entry_has_no_actions():
     assert r.actions == {}
     with pytest.raises(UnsupportedActionError, match="known actions:"):
         execute_action(r, "start", dry_run=True)
+
+
+# ---------- execute_install (Phase 6) ----------
+
+
+def test_install_dry_run_uses_resolved_argv_for_ubuntu():
+    """Phase 6: the resolved install argv (from the per-distro template
+    plus the entry's package name) flows through dry-run end-to-end.
+    Same dry-run guarantee as execute_action — apt-get never runs."""
+    r = resolve(_entry("bind9"), "ubuntu")
+    result = execute_install(r, dry_run=True)
+    assert result.dry_run is True
+    assert result.exit_code == 0
+    assert result.argv == ("apt-get", "install", "-y", "bind9")
+
+
+def test_install_dry_run_uses_resolved_argv_for_arch():
+    r = resolve(_entry("bind9"), "arch")
+    result = execute_install(r, dry_run=True)
+    assert result.dry_run is True
+    assert result.argv == ("pacman", "-S", "--noconfirm", "bind")
+
+
+def test_install_distro_difference_visible_in_argv():
+    """Apache: ubuntu installs `apache2`, arch installs `apache`. The
+    install step is per-distro just like the service actions."""
+    ubuntu = execute_install(resolve(_entry("apache"), "ubuntu"), dry_run=True)
+    arch = execute_install(resolve(_entry("apache"), "arch"), dry_run=True)
+    assert ubuntu.argv == ("apt-get", "install", "-y", "apache2")
+    assert arch.argv == ("pacman", "-S", "--noconfirm", "apache")
+
+
+def test_install_raises_when_no_install_argv(monkeypatch):
+    """Defensive: if the resolver produces an empty install (or a future
+    surface bypasses the planner gate), execute_install fails loudly
+    instead of silently no-op'ing during recovery."""
+    r = resolve(_entry("bind9"), "ubuntu")
+    # Replace the immutable install field via dataclasses.replace.
+    from dataclasses import replace as dc_replace
+
+    blank = dc_replace(r, install=())
+    with pytest.raises(NoInstallCommandError, match="bind9"):
+        execute_install(blank, dry_run=True)
+
+
+def test_install_default_timeout_is_long_enough_for_apt(monkeypatch):
+    """Documented behaviour: the install default is 10 minutes, not
+    the 30s used for service actions. Locking the constant prevents
+    a refactor from silently dropping it back to the action default
+    and breaking slow-link installs in a VM."""
+    assert DEFAULT_INSTALL_TIMEOUT_S == 600.0
+
+    seen: dict[str, object] = {}
+
+    def fake_run(argv, **kwargs):
+        seen["argv"] = tuple(argv)
+        seen["timeout"] = kwargs.get("timeout")
+        from lazyserver.platform.runner import RunResult
+
+        return RunResult(
+            argv=tuple(argv),
+            exit_code=0,
+            stdout="",
+            stderr="",
+            duration_s=0.0,
+            dry_run=kwargs.get("dry_run", False),
+        )
+
+    monkeypatch.setattr("lazyserver.services.control.run", fake_run)
+    r = resolve(_entry("bind9"), "ubuntu")
+    execute_install(r, dry_run=True)
+    assert seen["timeout"] == DEFAULT_INSTALL_TIMEOUT_S
 
 
 def test_entry_override_propagates_through_control(tmp_path):
