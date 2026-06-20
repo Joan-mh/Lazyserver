@@ -59,11 +59,13 @@ checklist item as a unit of work tied back to a requirement in `spec.md`.
 
 ## Phase 5 — Restore
 
-- [ ] Restore by file / by entry / whole system — FR-3.1.
-- [ ] Restore file_sets including files absent from disk; never delete extras — FR-3.4.
-- [ ] Automatic pre-restore snapshot — FR-3.2.
-- [ ] Correct ownership/permissions on restore — FR-3.3.
+- [x] Restore by file / by entry / whole system — FR-3.1.
+- [x] Restore file_sets including files absent from disk; never delete extras — FR-3.4.
+- [x] Automatic pre-restore snapshot — FR-3.2.
+- [x] Correct ownership/permissions on restore — FR-3.3.
 - **Done when:** a bad edit can be fully undone, and the undo is itself reversible.
+      ✓ VM-verified on real configs (CLI + TUI, all three scopes, partial
+      single-file restore + undo round-trip).
 
 ## Phase 6 — Full recovery
 
