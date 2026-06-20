@@ -360,6 +360,7 @@ def test_partial_failure_returns_exit_2(fake_context, tmp_path, monkeypatch):
         def list_snapshots(self, eid): return self._inner.list_snapshots(eid)
         def list_files(self, eid, ts): return self._inner.list_files(eid, ts)
         def read(self, ref): return self._inner.read(ref)
+        def read_metadata(self, eid, ts): return self._inner.read_metadata(eid, ts)
         def commit_operation(self, *, message): return None
 
     monkeypatch.setattr(

@@ -44,7 +44,7 @@ from pathlib import Path
 
 from ..platform.runner import RunResult, run
 from ..platform.user import TargetUser
-from .store import SnapshotRef
+from .store import FileMetadata, SnapshotRef
 from .store_plain import PlainBackupStore
 
 log = logging.getLogger("lazyserver.backup.store_git")
@@ -74,12 +74,17 @@ class GitBackupStore:
         entry_id: str,
         source: Path,
         timestamp: str,
+        metadata: FileMetadata,
     ) -> SnapshotRef:
         # Layout is identical to Plain. Staging is deferred to
         # commit_operation via `git add -A`, which also catches
-        # baselines.json — one source of truth for "what changed".
+        # baselines.json and metadata.json — one source of truth for
+        # "what changed".
         return self._plain.snapshot(
-            entry_id=entry_id, source=source, timestamp=timestamp
+            entry_id=entry_id,
+            source=source,
+            timestamp=timestamp,
+            metadata=metadata,
         )
 
     def list_snapshots(self, entry_id: str) -> list[str]:
@@ -91,8 +96,19 @@ class GitBackupStore:
     def read(self, ref: SnapshotRef) -> bytes:
         return self._plain.read(ref)
 
+    def read_metadata(
+        self, entry_id: str, timestamp: str
+    ) -> dict[Path, FileMetadata] | None:
+        return self._plain.read_metadata(entry_id, timestamp)
+
     def commit_operation(self, *, message: str) -> None:
         try:
+            # Plain writes metadata.json first so `git add -A` picks
+            # it up alongside content and baselines.json in this one
+            # commit. Order matters: a git commit before plain has
+            # written would leave metadata.json untracked until the
+            # next operation.
+            self._plain.commit_operation(message=message)
             status = self._git("status", "--porcelain")
             if not status.stdout.strip():
                 log.info("git: nothing to commit in %s", self.root)

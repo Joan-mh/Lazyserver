@@ -16,9 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from lazyserver.backup.store import make_backup_store
+from lazyserver.backup.store import FileMetadata, make_backup_store
 from lazyserver.backup.store_plain import PlainBackupStore
 from lazyserver.platform.user import TargetUser
+
+
+def _meta(sha: str = "0" * 64, *, uid: int = 0, gid: int = 0, mode: int = 0o644) -> FileMetadata:
+    """Stub metadata for store tests; values don't matter unless asserted."""
+    return FileMetadata(uid=uid, gid=gid, mode=mode, sha256=sha)
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None,
@@ -119,7 +124,7 @@ def test_snapshot_delegates_layout_to_plain(tmp_path: Path):
     root = tmp_path / "store"
     root.mkdir()
     store = GitBackupStore(root=root, target_user=_self_user())
-    ref = store.snapshot(entry_id="bind9", source=src, timestamp="t1")
+    ref = store.snapshot(entry_id="bind9", source=src, timestamp="t1", metadata=_meta())
     expected = root / "bind9" / "t1" / Path(*src.parts[1:])
     assert ref.stored_path == expected
     assert ref.stored_path.read_bytes() == b"options { recursion no; };\n"
@@ -135,7 +140,7 @@ def test_commit_operation_records_one_commit_per_operation(tmp_path: Path):
     # Before any commit, log is empty.
     assert _git(root, "log", "--oneline", "--all").strip() == ""
 
-    store.snapshot(entry_id="bind9", source=src, timestamp="t1")
+    store.snapshot(entry_id="bind9", source=src, timestamp="t1", metadata=_meta())
     store.commit_operation(message="backup t1")
 
     log_lines = _git(root, "log", "--oneline").strip().splitlines()
@@ -149,7 +154,7 @@ def test_commit_operation_is_noop_when_nothing_changed(tmp_path: Path):
     root = tmp_path / "store"
     root.mkdir()
     store = GitBackupStore(root=root, target_user=_self_user())
-    store.snapshot(entry_id="bind9", source=src, timestamp="t1")
+    store.snapshot(entry_id="bind9", source=src, timestamp="t1", metadata=_meta())
     store.commit_operation(message="backup t1")
 
     # Second commit with no new snapshots: log unchanged.
@@ -166,8 +171,8 @@ def test_commit_operation_includes_files_from_multiple_snapshots(tmp_path: Path)
     root.mkdir()
     store = GitBackupStore(root=root, target_user=_self_user())
 
-    store.snapshot(entry_id="e", source=a, timestamp="t1")
-    store.snapshot(entry_id="e", source=b, timestamp="t1")
+    store.snapshot(entry_id="e", source=a, timestamp="t1", metadata=_meta())
+    store.snapshot(entry_id="e", source=b, timestamp="t1", metadata=_meta())
     store.commit_operation(message="backup t1")
 
     files_in_commit = set(
@@ -187,7 +192,7 @@ def test_commit_operation_does_not_raise_on_git_failure(tmp_path: Path, monkeypa
     root = tmp_path / "store"
     root.mkdir()
     store = GitBackupStore(root=root, target_user=_self_user())
-    store.snapshot(entry_id="e", source=src, timestamp="t1")
+    store.snapshot(entry_id="e", source=src, timestamp="t1", metadata=_meta())
 
     # Force every git invocation to fail.
     def _boom(*args, **kwargs):
@@ -209,7 +214,27 @@ def test_read_and_list_match_plain_layout(tmp_path: Path):
     root = tmp_path / "store"
     root.mkdir()
     store = GitBackupStore(root=root, target_user=_self_user())
-    ref = store.snapshot(entry_id="bind9", source=src, timestamp="t1")
+    ref = store.snapshot(entry_id="bind9", source=src, timestamp="t1", metadata=_meta())
     assert store.read(ref) == b"v1"
     assert store.list_snapshots("bind9") == ["t1"]
     assert store.list_files("bind9", "t1") == [Path("/") / Path(*src.parts[1:])]
+
+
+def test_metadata_json_is_committed_in_the_git_tree(tmp_path: Path):
+    """metadata.json must be staged + committed in the same operation as
+    the content it describes — otherwise restore that reads from history
+    sees content without owner/mode in the same commit."""
+    src = tmp_path / "named.conf"
+    src.write_bytes(b"v1")
+    root = tmp_path / "store"
+    root.mkdir()
+    store = GitBackupStore(root=root, target_user=_self_user())
+    store.snapshot(
+        entry_id="bind9", source=src, timestamp="t1",
+        metadata=FileMetadata(uid=121, gid=127, mode=0o640, sha256="a" * 64),
+    )
+    store.commit_operation(message="backup t1")
+
+    # `git ls-tree HEAD` from the store root should list the metadata file.
+    tree = _git(root, "ls-tree", "-r", "--name-only", "HEAD")
+    assert "bind9/t1/metadata.json" in tree

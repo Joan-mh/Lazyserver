@@ -47,7 +47,7 @@ from .pending import (
     PendingStatus,
     scan_all,
 )
-from .store import BackupStore, SnapshotRef
+from .store import BackupStore, FileMetadata, SnapshotRef
 
 log = logging.getLogger("lazyserver.backup.run")
 
@@ -152,10 +152,18 @@ def _execute(
         # NEW or CHANGED — eligible.
         try:
             st = item.path.stat()
+            source_sha = sha256_of(item.path)
+            assert source_sha is not None  # path existed for stat()
             ref = store.snapshot(
                 entry_id=item.entry_id,
                 source=item.path,
                 timestamp=timestamp,
+                metadata=FileMetadata(
+                    uid=st.st_uid,
+                    gid=st.st_gid,
+                    mode=st.st_mode & 0o7777,
+                    sha256=source_sha,
+                ),
             )
             stored_sha = sha256_of(ref.stored_path)
         except Exception as exc:

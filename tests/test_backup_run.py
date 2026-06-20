@@ -321,17 +321,20 @@ class _FakeStore:
     calls: int = field(default=0)
     inner: PlainBackupStore | None = field(default=None)
 
-    def snapshot(self, *, entry_id, source, timestamp):
+    def snapshot(self, *, entry_id, source, timestamp, metadata):
         if self.calls >= self.fail_after:
             self.calls += 1
             raise OSError("synthetic store failure")
         self.calls += 1
-        return self.inner.snapshot(entry_id=entry_id, source=source, timestamp=timestamp)
+        return self.inner.snapshot(
+            entry_id=entry_id, source=source, timestamp=timestamp, metadata=metadata,
+        )
 
     def list_snapshots(self, entry_id): return self.inner.list_snapshots(entry_id)
     def list_files(self, entry_id, timestamp): return self.inner.list_files(entry_id, timestamp)
     def read(self, ref): return self.inner.read(ref)
-    def commit_operation(self, *, message): return None
+    def read_metadata(self, entry_id, timestamp): return self.inner.read_metadata(entry_id, timestamp)
+    def commit_operation(self, *, message): return self.inner.commit_operation(message=message)
 
 
 def test_partial_failure_leaves_baselines_coherent(tmp_path: Path):

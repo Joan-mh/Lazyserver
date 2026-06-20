@@ -19,13 +19,19 @@ their archive without root.
 
 from __future__ import annotations
 
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..platform.user import TargetUser
 from ._fsutil import mkdir_owned_chain, write_owned
-from .store import SnapshotRef
+from .store import (
+    METADATA_FILENAME,
+    METADATA_SCHEMA_VERSION,
+    FileMetadata,
+    SnapshotRef,
+)
 
 log = logging.getLogger("lazyserver.backup.store_plain")
 
@@ -36,6 +42,9 @@ class PlainBackupStore:
 
     root: Path
     target_user: TargetUser | None = None
+    _pending_meta: dict[tuple[str, str], dict[Path, FileMetadata]] = field(
+        default_factory=dict, init=False, repr=False,
+    )
 
     def snapshot(
         self,
@@ -43,6 +52,7 @@ class PlainBackupStore:
         entry_id: str,
         source: Path,
         timestamp: str,
+        metadata: FileMetadata,
     ) -> SnapshotRef:
         if not source.is_absolute():
             raise ValueError(f"snapshot source must be absolute: {source}")
@@ -56,6 +66,7 @@ class PlainBackupStore:
             stored_path.parent, self.target_user, stop_at=self.root
         )
         write_owned(stored_path, source.read_bytes(), self.target_user)
+        self._pending_meta.setdefault((entry_id, timestamp), {})[source] = metadata
         return SnapshotRef(
             entry_id=entry_id,
             timestamp=timestamp,
@@ -75,16 +86,56 @@ class PlainBackupStore:
             return []
         sources: list[Path] = []
         for p in snap_dir.rglob("*"):
-            if p.is_file():
-                relative = p.relative_to(snap_dir)
-                sources.append(Path("/") / relative)
+            if not p.is_file():
+                continue
+            # metadata.json at the snapshot root is bookkeeping, not a
+            # captured source — skip it so callers see only real files.
+            if p.parent == snap_dir and p.name == METADATA_FILENAME:
+                continue
+            relative = p.relative_to(snap_dir)
+            sources.append(Path("/") / relative)
         return sorted(sources)
 
     def read(self, ref: SnapshotRef) -> bytes:
         return ref.stored_path.read_bytes()
 
+    def read_metadata(
+        self, entry_id: str, timestamp: str
+    ) -> dict[Path, FileMetadata] | None:
+        path = self.root / entry_id / timestamp / METADATA_FILENAME
+        if not path.exists():
+            return None
+        with path.open(encoding="utf-8") as fp:
+            raw = json.load(fp)
+        version = raw.get("schema_version")
+        if version != METADATA_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported metadata schema version {version!r} at {path} "
+                f"(expected {METADATA_SCHEMA_VERSION})."
+            )
+        files = raw.get("files", {})
+        return {
+            Path(src): FileMetadata(
+                uid=rec["uid"],
+                gid=rec["gid"],
+                mode=rec["mode"],
+                sha256=rec["sha256"],
+            )
+            for src, rec in files.items()
+        }
+
     def commit_operation(self, *, message: str) -> None:
-        # No history layer; nothing to finalize. See BackupStore Protocol.
+        """Write per-snapshot ``metadata.json`` for each operation key.
+
+        One file per (entry_id, timestamp): a backup operation can span
+        multiple entries but each writes into its own snapshot dir, so
+        the metadata follows the same partition. Cleared after writing
+        so a long-lived store instance (TUI session) doesn't accumulate
+        stale entries.
+        """
+        for (entry_id, ts), files_meta in self._pending_meta.items():
+            self._write_metadata(entry_id, ts, files_meta)
+        self._pending_meta.clear()
         return None
 
     # ---------- internal ----------
@@ -95,3 +146,25 @@ class PlainBackupStore:
         # source → stored → source holds.
         relative = Path(*source.parts[1:])
         return self.root / entry_id / timestamp / relative
+
+    def _write_metadata(
+        self,
+        entry_id: str,
+        timestamp: str,
+        files_meta: dict[Path, FileMetadata],
+    ) -> None:
+        path = self.root / entry_id / timestamp / METADATA_FILENAME
+        payload = {
+            "schema_version": METADATA_SCHEMA_VERSION,
+            "files": {
+                str(src): {
+                    "uid": m.uid,
+                    "gid": m.gid,
+                    "mode": m.mode,
+                    "sha256": m.sha256,
+                }
+                for src, m in sorted(files_meta.items(), key=lambda kv: str(kv[0]))
+            },
+        }
+        body = json.dumps(payload, indent=2).encode("utf-8")
+        write_owned(path, body, self.target_user)
