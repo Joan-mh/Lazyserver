@@ -91,9 +91,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     recover = sub.add_parser(
         "recover",
-        help="Full recovery (Phase 6) — not yet implemented.",
+        help=(
+            "Full recovery (FR-5.3): install every entry, restore its "
+            "latest deliberate backup, enable services. Mirrors the "
+            "Phase 5 restore exit codes (0 ok / 1 hard error / 2 partial)."
+        ),
     )
-    recover.add_argument("--all", action="store_true")
+    recover.add_argument(
+        "--all",
+        action="store_true",
+        help="Recover every entry. Required (per-entry recovery is `lsrv restore --entry ID`).",
+    )
+    recover.add_argument(
+        "--store",
+        type=Path,
+        metavar="PATH",
+        help="Override backup store path (else settings.backup_store).",
+    )
 
     return parser
 
@@ -135,8 +149,13 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "recover":
-        print("recover: not yet implemented (Phase 6).", file=sys.stderr)
-        return 2
+        from .recovery.cli import cmd_recover
+
+        return cmd_recover(
+            all_entries=args.all,
+            store_override=args.store,
+            dry_run=args.dry_run,
+        )
 
     return 0
 

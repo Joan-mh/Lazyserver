@@ -33,7 +33,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..platform.user import TargetUser
 
 JSON_SCHEMA_VERSION = 1
 
@@ -355,11 +358,41 @@ def _step_detail(step: StepResult) -> str:
 def artifact_paths(store_root: Path, timestamp: str) -> tuple[Path, Path]:
     """Return ``(log_path, json_path)`` under ``<store_root>/recovery/``.
 
-    Pure path math; does not create the directory. The orchestrator /
-    CLI creates and chowns the recovery dir before calling the writer.
+    Pure path math; does not create the directory.
     """
     base = store_root / "recovery"
     return (
         base / f"recovery-{timestamp}.log",
         base / f"recovery-{timestamp}.json",
     )
+
+
+def write_recovery_artifacts(
+    report: RecoveryReport,
+    *,
+    store_root: Path,
+    target_user: "TargetUser | None",
+) -> tuple[Path, Path]:
+    """Write both artifacts under ``<store_root>/recovery/``.
+
+    Shared by the CLI (``lsrv recover --all``) and the TUI's recover
+    screen so both surfaces produce byte-identical artifacts for the
+    same in-memory report. Uses ``write_owned`` from the backup
+    layer's fsutil so artifacts land owned by ``target_user``, not
+    root — same chown discipline as the snapshots they sit alongside.
+    Returns ``(log_path, json_path)``.
+    """
+    # Local import: report.py is otherwise pure / dependency-light, and
+    # tests import its formatters without dragging the fsutil chain in.
+    from ..backup._fsutil import ensure_owned_dir, write_owned
+
+    log_path, json_path = artifact_paths(store_root, report.timestamp)
+    ensure_owned_dir(log_path.parent, target_user)
+    log_text = format_human_log(report)
+    write_owned(log_path, log_text.encode("utf-8"), target_user)
+    write_owned(
+        json_path,
+        (format_json(report) + "\n").encode("utf-8"),
+        target_user,
+    )
+    return log_path, json_path
