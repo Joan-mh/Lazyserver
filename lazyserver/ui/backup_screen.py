@@ -34,6 +34,7 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Footer, Header, ListItem, ListView, Static
 
 from ..app import AppContext, format_status_line
+from ..config import resolved_backup_store
 from ..backup.pending import (
     BaselineStore,
     PendingItem,
@@ -534,9 +535,9 @@ class BackupScreen(Screen):
         widget.set_class(alert, "alert")
 
     def _store_path(self) -> Path | None:
-        if not self.context.settings.backup_store:
-            return None
-        return Path(self.context.settings.backup_store)
+        return resolved_backup_store(
+            self.context.settings, self.context.target_user
+        )
 
     def _store_subtitle(self) -> str:
         sp = self._store_path()

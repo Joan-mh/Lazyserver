@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Iterable
 
 from ..app import AppContext, BootstrapError, bootstrap
-from ..config import Settings
+from ..config import Settings, expand_user_path, resolved_backup_store
+from ..platform.user import TargetUser
 from ..tconf.resolve import ResolutionError, ResolvedEntry, resolve
 from .pending import (
     BaselineStore,
@@ -71,7 +72,9 @@ def cmd_backup(
         return EXIT_HARD_ERROR
 
     try:
-        store_path = _resolve_store_path(context.settings, store_override)
+        store_path = _resolve_store_path(
+            context.settings, store_override, context.target_user
+        )
     except _ConfigError as exc:
         print(f"lazyserver: {exc}", file=err)
         return EXIT_HARD_ERROR
@@ -208,11 +211,14 @@ class _ConfigError(RuntimeError):
     """Raised when config prevents us from running (e.g. no store)."""
 
 
-def _resolve_store_path(settings: Settings, override: Path | None) -> Path:
+def _resolve_store_path(
+    settings: Settings, override: Path | None, target_user: TargetUser
+) -> Path:
     if override is not None:
-        return override
-    if settings.backup_store:
-        return Path(settings.backup_store)
+        return expand_user_path(str(override), target_user)
+    resolved = resolved_backup_store(settings, target_user)
+    if resolved is not None:
+        return resolved
     raise _ConfigError(
         "no backup store configured. Set `backup_store` in "
         "~/.config/lazyserver/config.toml or pass --store <path>."

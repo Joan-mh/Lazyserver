@@ -16,7 +16,13 @@ from pathlib import Path
 from textual.app import App
 from textual.binding import Binding
 
-from .config import ConfigError, Settings, default_path, load as load_settings
+from .config import (
+    ConfigError,
+    Settings,
+    default_path,
+    load as load_settings,
+    resolved_tconf_paths,
+)
 from .platform.distro import Distro, detect as detect_distro
 from .platform.user import TargetUser, TargetUserError
 from .platform.user import resolve as resolve_target_user
@@ -111,7 +117,7 @@ def bootstrap() -> AppContext:
             raise BootstrapError(str(exc)) from exc
 
     distro = detect_distro()
-    folders = _tconf_folders(settings)
+    folders = _tconf_folders(settings, target_user)
     report = _load_with_clear_errors(folders)
 
     return AppContext(
@@ -123,10 +129,10 @@ def bootstrap() -> AppContext:
     )
 
 
-def _tconf_folders(settings: Settings) -> list[Path]:
+def _tconf_folders(settings: Settings, target_user: TargetUser) -> list[Path]:
     """Bundled folder always first; user folders shadow per FR-7.4."""
     folders: list[Path] = [bundled_tconf_path()]
-    folders.extend(Path(p) for p in settings.tconf_paths)
+    folders.extend(resolved_tconf_paths(settings, target_user))
     return folders
 
 

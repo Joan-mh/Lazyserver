@@ -82,6 +82,44 @@ def test_malformed_toml_raises_config_error_naming_the_file(tmp_path: Path):
     assert "delete" in msg.lower()
 
 
+# ---------- ~ expansion in config paths (FR-1.10 consistency) ----------
+
+
+def test_expand_user_path_expands_tilde_against_target_user_home(tmp_path: Path):
+    """`~/foo` in a config setting must expand to the *target* user's home,
+    not be taken literally — students writing `backup_store = "~/lsrvbck"`
+    should not get a folder named `~`."""
+    user = _self_target_user(tmp_path)
+    assert config.expand_user_path("~/lsrvbck", user) == tmp_path / "lsrvbck"
+    assert config.expand_user_path("~", user) == tmp_path
+
+
+def test_expand_user_path_passes_absolute_and_relative_through(tmp_path: Path):
+    user = _self_target_user(tmp_path)
+    assert config.expand_user_path("/var/lib/lsrv", user) == Path("/var/lib/lsrv")
+    assert config.expand_user_path("rel/path", user) == Path("rel/path")
+
+
+def test_resolved_backup_store_expands_tilde(tmp_path: Path):
+    user = _self_target_user(tmp_path)
+    s = config.Settings(backup_store="~/lsrvbck")
+    assert config.resolved_backup_store(s, user) == tmp_path / "lsrvbck"
+
+
+def test_resolved_backup_store_none_when_unset(tmp_path: Path):
+    user = _self_target_user(tmp_path)
+    assert config.resolved_backup_store(config.Settings(), user) is None
+
+
+def test_resolved_tconf_paths_expands_each(tmp_path: Path):
+    user = _self_target_user(tmp_path)
+    s = config.Settings(tconf_paths=("~/t1", "/abs/t2"))
+    assert config.resolved_tconf_paths(s, user) == (
+        tmp_path / "t1",
+        Path("/abs/t2"),
+    )
+
+
 def test_malformed_toml_error_includes_line_position_when_available(tmp_path: Path):
     """When tomllib reports a position, surface it so the student can
     jump straight to the problem instead of bisecting the file."""

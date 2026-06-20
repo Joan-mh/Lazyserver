@@ -99,6 +99,39 @@ def save(settings: Settings, path: Path, *, owner: TargetUser | None = None) -> 
         _try_chown(path, owner)
 
 
+def expand_user_path(raw: str, target_user: TargetUser) -> Path:
+    """Expand a leading `~` against the **target user's** home (FR-1.10).
+
+    `~` or `~/foo` → `<target_user.home>/foo`. Anything else passes
+    through as a plain `Path`. Mirrors the tconf path-expansion rule so
+    config-file paths (`backup_store`, `tconf_paths`) behave the same as
+    app entry paths: students writing `backup_store = "~/lsrvbck"`
+    should not end up with a folder literally named `~`.
+    """
+    if not raw.startswith("~"):
+        return Path(raw)
+    rest = raw[1:]
+    if rest.startswith("/"):
+        rest = rest[1:]
+    return target_user.home / rest if rest else target_user.home
+
+
+def resolved_backup_store(
+    settings: Settings, target_user: TargetUser
+) -> Path | None:
+    """Resolve `settings.backup_store` to a Path, expanding `~`. None if unset."""
+    if not settings.backup_store:
+        return None
+    return expand_user_path(settings.backup_store, target_user)
+
+
+def resolved_tconf_paths(
+    settings: Settings, target_user: TargetUser
+) -> tuple[Path, ...]:
+    """Resolve `settings.tconf_paths` to Paths, expanding `~` in each."""
+    return tuple(expand_user_path(p, target_user) for p in settings.tconf_paths)
+
+
 def resolve_editor(settings: Settings, env: dict[str, str] | None = None) -> str:
     """Return the editor to launch (FR-7.3).
 
