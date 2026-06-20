@@ -10,9 +10,12 @@ Two stacked screens, one entry point:
   * :class:`RestoreFilesScreen` — shows what the chosen snapshot would
     restore: each file with the resolved (uid/gid/mode) inline so
     ``bind:bind 0640`` is verifiable *before* the action, plus file_set
-    extras flagged ``EXT  not touched`` per FR-3.4. Uppercase ``R``
-    runs the restore (no confirmation per NFR-2 + §9 — the finger-gate
-    mirrors backup's ``B``).
+    extras flagged ``EXT  not touched`` per FR-3.4. Lowercase ``r``
+    restores the selected rows (errors when nothing is picked);
+    uppercase ``R`` restores everything visible. Same key split as the
+    backup screen's ``b`` / ``B`` so the scope of each key is
+    unambiguous (no confirmation per NFR-2 + §9 — the uppercase form
+    is the finger-gate for the wider action, mirroring backup's ``B``).
 
 **Why the two levels.** Restore's defining decision is the moment to
 rewind to. Flattening that to "latest" would hide the heart of the
@@ -208,13 +211,11 @@ class ItemSelection:
     no need for the (entry_id, path) compound key the backup screen
     uses across entries.
 
-    **Empty selection is meaningful.** ``R`` with nothing selected
-    restores everything visible — preserving the "fix what I broke,
-    don't bother picking" flow that's the common case. Selecting one
-    or more files narrows the action to those — the surgical case
-    that matters when a snapshot has 10 files and the student only
-    wants to undo one. ``EXT`` rows are never selectable (they're
-    reported, not touched, per FR-3.4).
+    **Scope is keyed, not inferred.** Lowercase ``r`` restores only
+    selected rows (and errors when nothing is picked); uppercase ``R``
+    restores everything visible regardless of selection. Two keys, no
+    ambiguity — mirrors backup's ``b`` / ``B`` split. ``EXT`` rows are
+    never selectable (they're reported, not touched, per FR-3.4).
     """
 
     _paths: set[Path] = field(default_factory=set)
@@ -431,17 +432,19 @@ class RestoreFilesScreen(Screen):
 
     The list shows every file the snapshot will overwrite with its
     pre-resolved ownership inline, plus any file_set extras flagged
-    ``not touched`` (FR-3.4). Uppercase ``R`` triggers the restore;
-    after success a modal surfaces the pre-restore TS + the literal
-    undo invocation, then we pop back to the snapshots screen so the
-    new pre-restore snapshot is visible in the list.
+    ``not touched`` (FR-3.4). Lowercase ``r`` restores the selected
+    rows; uppercase ``R`` restores everything visible. After success a
+    modal surfaces the pre-restore TS + the literal undo invocation,
+    then we pop back to the snapshots screen so the new pre-restore
+    snapshot is visible in the list.
     """
 
     BINDINGS = [
         Binding("space", "toggle", "Toggle", show=True),
         Binding("a", "select_all", "All", show=True),
         Binding("n", "clear", "Clear", show=True),
-        Binding("R", "restore", "Restore", show=True),
+        Binding("r", "restore_selected", "Restore selected", show=True),
+        Binding("R", "restore_all", "Restore all", show=True),
         Binding("backspace,escape", "app.pop_screen", "Back", show=True),
     ]
 
@@ -482,10 +485,9 @@ class RestoreFilesScreen(Screen):
                 )
             else:
                 yield Static(
-                    f"Space to select · R to restore — "
+                    f"Space to select · r restore selected · R restore all — "
                     f"{len(self._planned)} file(s) overwriteable, "
-                    f"{len(self._extras)} extra(s) reported.  "
-                    f"R with nothing selected restores all visible.",
+                    f"{len(self._extras)} extra(s) reported.",
                     classes="muted",
                 )
                 rows: list[ListItem] = [
@@ -531,14 +533,31 @@ class RestoreFilesScreen(Screen):
         self._selection.clear()
         self._render_rows()
 
-    def action_restore(self) -> None:
-        """Run the restore. No confirmation by design (NFR-2 + §9).
+    def action_restore_selected(self) -> None:
+        """Restore only the rows the student toggled (FR-3.1 scope 1).
 
-        Scope mirrors the CLI:
-          * Selection non-empty → restore only those paths (FR-3.1
-            scope 1, the surgical "just the file I broke" case).
-          * Selection empty → restore every visible planned row
-            (FR-3.1 scope 2, the "put this entry back" case).
+        Errors when nothing is selected — the uppercase ``R`` is right
+        there for the "everything visible" case, so guessing intent
+        from an empty selection would just be a foot-gun.
+        """
+        if self._selection.count() == 0:
+            self._set_result(
+                "Nothing selected. Use Space, or press R for all.",
+                alert=False,
+            )
+            return
+        self._run_restore(tuple(sorted(self._selection.selected_paths())))
+
+    def action_restore_all(self) -> None:
+        """Restore every visible planned row (FR-3.1 scope 2)."""
+        self._run_restore(None)
+
+    def _run_restore(self, file_paths: tuple[Path, ...] | None) -> None:
+        """Shared executor for both restore actions.
+
+        ``file_paths`` is the narrowing handed to the planner: ``None``
+        means "everything in the snapshot for this entry", a tuple
+        means "only these paths". No confirmation by design (NFR-2 + §9).
         """
         if not self._planned and not self._extras:
             self._set_result("Nothing to restore.", alert=False)
@@ -562,13 +581,6 @@ class RestoreFilesScreen(Screen):
         store = make_backup_store(store_path, target_user=self.context.target_user)
         baselines = BaselineStore.load(store_path, target_user=self.context.target_user)
         resolved_map = {self.resolved.entry.id: self.resolved}
-        # Empty selection → no path filter (restore all planned). Non-empty
-        # selection → narrow to those paths. The planner does the actual
-        # filtering against the snapshot's contents, so we just hand it
-        # whichever set the user picked.
-        file_paths: tuple[Path, ...] | None = None
-        if self._selection.count() > 0:
-            file_paths = tuple(sorted(self._selection.selected_paths()))
         plan = plan_restore(
             selection=RestoreSelection(
                 entry_ids=(self.resolved.entry.id,),

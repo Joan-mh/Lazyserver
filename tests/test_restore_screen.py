@@ -491,10 +491,11 @@ async def test_pilot_space_toggles_planned_row_marker(tmp_path):
         assert "[x]" in after
 
 
-async def test_pilot_R_with_one_selected_only_restores_that_file(tmp_path, monkeypatch):
+async def test_pilot_r_with_one_selected_only_restores_that_file(tmp_path, monkeypatch):
     """The VM-screenshot bug: snapshot holds 2 files, student only
-    broke one. With one row selected, R must overwrite only that
-    file and leave the other on-disk edit intact."""
+    broke one. With one row selected, lowercase ``r`` must overwrite
+    only that file and leave the other on-disk edit intact —
+    mirroring backup's ``b`` (selected only)."""
     store_path, ctx, file_a, file_b = _seed_multi_file_snapshot(tmp_path)
 
     from lazyserver.ui import restore_screen as restore_screen_mod
@@ -513,7 +514,7 @@ async def test_pilot_R_with_one_selected_only_restores_that_file(tmp_path, monke
         # Focus is on the first row; toggle it.
         await pilot.press("space")
         await pilot.pause()
-        await pilot.press("R")
+        await pilot.press("r")
         await pilot.pause()
         # file-a was restored back to original.
         assert file_a.read_text() == "a-original"
@@ -521,9 +522,32 @@ async def test_pilot_R_with_one_selected_only_restores_that_file(tmp_path, monke
         assert file_b.read_text() == "b-edited"
 
 
+async def test_pilot_r_with_no_selection_shows_hint(tmp_path):
+    """Lowercase ``r`` with empty selection must not restore anything;
+    it should nudge the student to either pick rows or press ``R``.
+    Mirrors backup's ``b`` behaviour and prevents the previous
+    overload from silently restoring everything on a stray keypress."""
+    store_path, ctx, file_a, file_b = _seed_multi_file_snapshot(tmp_path)
+
+    app = LazyServerApp(ctx)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        # Live files untouched — restore did NOT fire.
+        assert file_a.read_text() == "a-edited"
+        assert file_b.read_text() == "b-edited"
+        result = app.screen.query_one("#restore-result")
+        assert "Nothing selected" in str(result.content)
+
+
 async def test_pilot_R_with_no_selection_restores_all(tmp_path, monkeypatch):
-    """With nothing selected, R falls back to the existing "restore
-    everything visible" behavior — the common "fix this entry" flow."""
+    """With nothing selected, uppercase ``R`` restores every visible
+    file — the "fix this whole entry" flow. Mirrors backup's ``B``."""
     store_path, ctx, file_a, file_b = _seed_multi_file_snapshot(tmp_path)
 
     from lazyserver.ui import restore_screen as restore_screen_mod
