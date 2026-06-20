@@ -56,6 +56,7 @@ class EntryScreen(Screen):
 
     BINDINGS = [
         Binding("enter", "open_focused", "Open file", show=True),
+        Binding("r", "restore_entry", "Restore", show=True),
         Binding("backspace,escape", "app.pop_screen", "Back", show=True),
         *(
             Binding(key, f"do_action('{action}')", action, show=True)
@@ -153,6 +154,17 @@ class EntryScreen(Screen):
                 self.app.push_screen(
                     FileScreen(self.context, self.entry, highlighted.payload)
                 )
+
+    def action_restore_entry(self) -> None:
+        """Open the restore flow for this entry.
+
+        Restore lives only on screens where the user has an explicit
+        entry context — here and on HomeScreen — never as an app-wide
+        accelerator (Phase 5 design).
+        """
+        from .restore_screen import RestoreSnapshotsScreen
+
+        self.app.push_screen(RestoreSnapshotsScreen(self.context, self.entry.id))
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         from .file_screen import FileScreen

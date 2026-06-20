@@ -26,6 +26,7 @@ class HomeScreen(Screen):
 
     BINDINGS = [
         Binding("enter", "open_focused", "Open", show=True),
+        Binding("r", "restore_focused", "Restore", show=True),
     ]
 
     def __init__(self, context: AppContext):
@@ -69,6 +70,23 @@ class HomeScreen(Screen):
             highlighted = focused.highlighted_child
             if isinstance(highlighted, _EntryItem):
                 self.app.push_screen(EntryScreen(self.context, highlighted.entry))
+
+    def action_restore_focused(self) -> None:
+        """Open the restore flow for the currently focused entry.
+
+        Restore is screen-local (no app-wide `r` per the Phase 5
+        design), so it lives here on Home and on EntryScreen — both
+        places where the user has explicitly chosen an entry.
+        """
+        from .restore_screen import RestoreSnapshotsScreen
+
+        focused = self.focused
+        if isinstance(focused, ListView):
+            highlighted = focused.highlighted_child
+            if isinstance(highlighted, _EntryItem):
+                self.app.push_screen(
+                    RestoreSnapshotsScreen(self.context, highlighted.entry.id)
+                )
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Mouse click / Enter on a row routes to entry detail."""
