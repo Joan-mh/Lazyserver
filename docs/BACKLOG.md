@@ -122,8 +122,3 @@ tool running on local VMs, and it breaks the offline-friendly property.
 deliberately deferred (manual YAML + the AI prompt template covers it for now).
 But Level 1 is small — it surfaces an already-designed template where the user
 needs it — and is worth doing once the core phases land.
-
-**Related note:** app code paths are currently under-tested. All VM testing so
-far has been services (bind9, nginx, etc.). The neovim app path (backup of
-`~/.config/nvim/init.lua`, ownership = target user, `~` expansion) should be
-explicitly exercised on a VM — see handoff notes.
