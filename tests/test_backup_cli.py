@@ -208,6 +208,48 @@ def test_missing_store_is_hard_error(tmp_path, monkeypatch):
     assert "config.toml" in err.getvalue()
 
 
+def test_first_run_announces_backup_store_creation(fake_context, tmp_path):
+    """If the store dir didn't exist, surface a prominent notice with the
+    resolved absolute path — the diagnostic that makes a ~-misexpansion
+    or a typo visible."""
+    ctx, store_path = fake_context
+    assert not store_path.exists()
+    src = tmp_path / "smoke.conf"
+    src.write_text("v1", encoding="utf-8")
+    out = io.StringIO()
+
+    code = backup_cli.cmd_backup(
+        list_only=False, all_pending=True, entry_ids=None,
+        store_override=None, dry_run=False, out=out, err=io.StringIO(),
+    )
+
+    assert code == backup_cli.EXIT_OK
+    assert f"Created backup store at {store_path}" in out.getvalue()
+
+
+def test_subsequent_run_does_not_announce_creation(fake_context, tmp_path):
+    """The notice fires only on cold-create. A second run on an existing
+    store must not repeat it."""
+    ctx, store_path = fake_context
+    src = tmp_path / "smoke.conf"
+    src.write_text("v1", encoding="utf-8")
+
+    # First run creates the store.
+    backup_cli.cmd_backup(
+        list_only=False, all_pending=True, entry_ids=None,
+        store_override=None, dry_run=False,
+        out=io.StringIO(), err=io.StringIO(),
+    )
+    # Second run — touch the source again so something is pending.
+    src.write_text("v2", encoding="utf-8")
+    out = io.StringIO()
+    backup_cli.cmd_backup(
+        list_only=False, all_pending=True, entry_ids=None,
+        store_override=None, dry_run=False, out=out, err=io.StringIO(),
+    )
+    assert "Created backup store" not in out.getvalue()
+
+
 def test_store_override_takes_precedence(fake_context, tmp_path):
     """--store wins over settings.backup_store."""
     ctx, settings_store = fake_context

@@ -430,7 +430,11 @@ class BackupScreen(Screen):
             self._set_result("No backup store configured.", alert=True)
             return
 
+        created = not store_path.exists()
         store_path.mkdir(parents=True, exist_ok=True)
+        create_notice = (
+            f"Created backup store at {store_path}\n" if created else ""
+        )
         baselines = BaselineStore.load(store_path, target_user=self.context.target_user)
         store = make_backup_store(store_path, target_user=self.context.target_user)
         timestamp = current_timestamp()
@@ -440,20 +444,23 @@ class BackupScreen(Screen):
             )
         except Exception as exc:
             log.exception("backup_files crashed")
-            self._set_result(f"✗ Backup crashed: {exc}", alert=True)
+            self._set_result(
+                f"{create_notice}✗ Backup crashed: {exc}", alert=True
+            )
             return
 
         backed = sum(1 for r in reports if r.outcome is BackupOutcome.BACKED_UP)
         failed = sum(1 for r in reports if r.outcome is BackupOutcome.FAILED)
         if failed:
             self._set_result(
-                f"⚠ Backed up {backed} file(s), {failed} failed at {timestamp}",
+                f"{create_notice}⚠ Backed up {backed} file(s), {failed} failed at {timestamp}",
                 alert=True,
             )
             self.app.push_screen(_ReportModal(reports, timestamp))
         else:
             self._set_result(
-                f"✓ Backed up {backed} file(s) at {timestamp}", alert=False
+                f"{create_notice}✓ Backed up {backed} file(s) at {timestamp}",
+                alert=bool(create_notice),
             )
 
         # Re-scan so just-backed-up rows disappear and selection is reset.

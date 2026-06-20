@@ -301,6 +301,26 @@ distros:
     )
 
 
+async def test_pilot_first_run_announces_store_creation(tmp_path):
+    """First-time backup must surface a notice with the resolved store
+    path, so a typo or ~-misexpansion is visible (not buried)."""
+    store = tmp_path / "fresh-store"
+    assert not store.exists()
+    ctx = _context_with_one_pending_file(tmp_path, store)
+    app = LazyServerApp(ctx)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("b")
+        await pilot.pause()
+        assert isinstance(app.screen, BackupScreen)
+        await pilot.press("B")
+        await pilot.pause()
+        result = app.screen.query_one("#backup-result")
+        text = str(result.content)
+        assert f"Created backup store at {store}" in text
+        assert "Backed up 1" in text
+
+
 async def test_pilot_home_to_backup_to_backup_action(tmp_path):
     store = tmp_path / "store"
     ctx = _context_with_one_pending_file(tmp_path, store)
