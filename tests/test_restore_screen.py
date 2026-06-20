@@ -43,6 +43,7 @@ from lazyserver.tconf.loader import load_folders
 from lazyserver.tconf.resolve import resolve as resolve_entry
 from lazyserver.ui.restore_screen import (
     ExtraRow,
+    ItemSelection,
     PlannedRow,
     RestoreFilesScreen,
     RestoreSnapshotsScreen,
@@ -238,6 +239,34 @@ def test_undo_banner_one_line_per_entry():
     assert sum(1 for ln in lines if ln.lstrip().startswith("lsrv restore --entry")) == 2
 
 
+# ---------- ItemSelection (pure) ----------
+
+
+def test_item_selection_toggle_adds_then_removes():
+    sel = ItemSelection()
+    p = Path("/etc/bind/named.conf")
+    sel.toggle(p)
+    assert sel.is_selected(p)
+    sel.toggle(p)
+    assert not sel.is_selected(p)
+    assert sel.count() == 0
+
+
+def test_item_selection_select_all_unions():
+    sel = ItemSelection()
+    sel.toggle(Path("/a"))
+    sel.select_all([Path("/a"), Path("/b"), Path("/c")])
+    assert sel.count() == 3
+    assert sel.is_selected(Path("/c"))
+
+
+def test_item_selection_clear_resets():
+    sel = ItemSelection()
+    sel.select_all([Path("/a"), Path("/b")])
+    sel.clear()
+    assert sel.count() == 0
+
+
 # ---------- Pilot smoke: home → r → enter → R ----------
 
 
@@ -377,6 +406,166 @@ async def test_pilot_restore_screen_shows_no_store_message(tmp_path):
         assert isinstance(app.screen, RestoreSnapshotsScreen)
         empty = app.screen.query_one("#restore-empty-state")
         assert "No backup store" in str(empty.content)
+
+
+def _seed_multi_file_snapshot(tmp_path: Path) -> tuple[Path, AppContext, Path, Path]:
+    """Build an entry with two managed files, snapshot both, then edit
+    both. Returns the store path, context, and both source paths.
+
+    Models the bug from the VM screenshot: snapshot holds N files, the
+    student broke only one, and the screen must let them restore just
+    that one rather than overwriting the other N-1 they didn't touch.
+    """
+    body = f"""
+schema_version: 1
+id: zoned
+name: Zoned
+kind: service
+description: x
+files:
+  - id: a
+    path: {tmp_path / 'file-a.conf'}
+    description: a
+  - id: b
+    path: {tmp_path / 'file-b.conf'}
+    description: b
+distros:
+  ubuntu:
+    package: zoned
+    service_unit: zoned
+"""
+    folder = tmp_path / "tconf"
+    folder.mkdir()
+    (folder / "zoned.yaml").write_text(body, encoding="utf-8")
+    file_a = tmp_path / "file-a.conf"
+    file_b = tmp_path / "file-b.conf"
+    file_a.write_text("a-original", encoding="utf-8")
+    file_b.write_text("b-original", encoding="utf-8")
+    report = load_folders([folder])
+
+    store_path = tmp_path / "store"
+    ctx = AppContext(
+        target_user=_self_user(),
+        settings=Settings(backup_store=str(store_path)),
+        distro=_ubuntu(),
+        entries=tuple(report.entries.values()),
+        shadowed=(),
+    )
+    store_path.mkdir()
+    resolved = [
+        resolve_entry(e, "ubuntu", target_user=_self_user()) for e in ctx.entries
+    ]
+    store = PlainBackupStore(root=store_path, target_user=_self_user())
+    baselines = BaselineStore.load(store_path, target_user=_self_user())
+    backup_pending(
+        entries=resolved,
+        store=store,
+        baselines=baselines,
+        timestamp="20260620-100000",
+    )
+    # Edit both — only one will be restored by the surgical test.
+    file_a.write_text("a-edited", encoding="utf-8")
+    file_b.write_text("b-edited", encoding="utf-8")
+    return store_path, ctx, file_a, file_b
+
+
+async def test_pilot_space_toggles_planned_row_marker(tmp_path):
+    """Space on a focused RST row flips its `[ ]` marker to `[x]`,
+    so the student can see what's picked before pressing R."""
+    store_path, ctx, file_a, file_b = _seed_multi_file_snapshot(tmp_path)
+    app = LazyServerApp(ctx)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        # First RST row starts with `[ ]`.
+        view = app.screen.query_one("#restore-files-list")
+        rows = list(view.children)
+        before = str(rows[0]._label.content)
+        assert "[ ]" in before
+        await pilot.press("space")
+        await pilot.pause()
+        after = str(rows[0]._label.content)
+        assert "[x]" in after
+
+
+async def test_pilot_R_with_one_selected_only_restores_that_file(tmp_path, monkeypatch):
+    """The VM-screenshot bug: snapshot holds 2 files, student only
+    broke one. With one row selected, R must overwrite only that
+    file and leave the other on-disk edit intact."""
+    store_path, ctx, file_a, file_b = _seed_multi_file_snapshot(tmp_path)
+
+    from lazyserver.ui import restore_screen as restore_screen_mod
+    monkeypatch.setattr(
+        restore_screen_mod, "current_timestamp", lambda: "20260620-153045"
+    )
+
+    app = LazyServerApp(ctx)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        # Rows are sorted by path: file-a.conf, then file-b.conf.
+        # Focus is on the first row; toggle it.
+        await pilot.press("space")
+        await pilot.pause()
+        await pilot.press("R")
+        await pilot.pause()
+        # file-a was restored back to original.
+        assert file_a.read_text() == "a-original"
+        # file-b was NOT touched — student's other edit survives.
+        assert file_b.read_text() == "b-edited"
+
+
+async def test_pilot_R_with_no_selection_restores_all(tmp_path, monkeypatch):
+    """With nothing selected, R falls back to the existing "restore
+    everything visible" behavior — the common "fix this entry" flow."""
+    store_path, ctx, file_a, file_b = _seed_multi_file_snapshot(tmp_path)
+
+    from lazyserver.ui import restore_screen as restore_screen_mod
+    monkeypatch.setattr(
+        restore_screen_mod, "current_timestamp", lambda: "20260620-153045"
+    )
+
+    app = LazyServerApp(ctx)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        # No space presses — selection is empty.
+        await pilot.press("R")
+        await pilot.pause()
+        assert file_a.read_text() == "a-original"
+        assert file_b.read_text() == "b-original"
+
+
+async def test_pilot_a_selects_all_then_n_clears(tmp_path):
+    """`a` flips every RST marker to `[x]`; `n` flips them back to `[ ]`."""
+    store_path, ctx, file_a, file_b = _seed_multi_file_snapshot(tmp_path)
+    app = LazyServerApp(ctx)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        view = app.screen.query_one("#restore-files-list")
+        for row in view.children:
+            assert "[x]" in str(row._label.content)
+
+        await pilot.press("n")
+        await pilot.pause()
+        for row in view.children:
+            assert "[ ]" in str(row._label.content)
 
 
 async def test_pilot_dry_run_does_not_overwrite(tmp_path, monkeypatch):

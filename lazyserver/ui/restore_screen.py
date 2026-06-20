@@ -34,7 +34,7 @@ explicit per-entry navigation.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -126,25 +126,34 @@ class PlannedRow:
     item: RestoreItem
     ownership: OwnershipChoice
 
-    @property
-    def label(self) -> str:
+    def label_with(self, marker: str) -> str:
         mode = oct(self.ownership.mode)
         warn = "  ⚠" if self.ownership.warnings else ""
         return (
-            f"RST  {self.item.source_path}    "
+            f"{marker} RST  {self.item.source_path}    "
             f"uid={self.ownership.uid} gid={self.ownership.gid} mode={mode}{warn}"
         )
+
+    @property
+    def label(self) -> str:
+        """Marker-less label kept for callers that don't care about selection."""
+        return self.label_with("[ ]")
 
 
 @dataclass(frozen=True)
 class ExtraRow:
-    """One row for a FR-3.4 extra — clearly flagged 'not touched'."""
+    """One row for a FR-3.4 extra — clearly flagged 'not touched'.
+
+    Always rendered with ``[-]`` marker — extras can't be selected
+    because they're never written. Showing the marker still keeps the
+    column aligned with planned rows so the eye doesn't have to jump.
+    """
 
     extra: FileSetExtra
 
     @property
     def label(self) -> str:
-        return f"EXT  {self.extra.path}    not touched (FR-3.4)"
+        return f"[-] EXT  {self.extra.path}    not touched (FR-3.4)"
 
 
 def build_planned_rows(
@@ -187,6 +196,52 @@ def _matching_file_set(
     return None
 
 
+# ---------- selection (pure) ----------
+
+
+@dataclass
+class ItemSelection:
+    """Per-file picks on the restore files screen (FR-3.1 scope 1).
+
+    Tracks the source paths the student has explicitly toggled.
+    Restore is per-entry-per-snapshot so paths alone are unique here —
+    no need for the (entry_id, path) compound key the backup screen
+    uses across entries.
+
+    **Empty selection is meaningful.** ``R`` with nothing selected
+    restores everything visible — preserving the "fix what I broke,
+    don't bother picking" flow that's the common case. Selecting one
+    or more files narrows the action to those — the surgical case
+    that matters when a snapshot has 10 files and the student only
+    wants to undo one. ``EXT`` rows are never selectable (they're
+    reported, not touched, per FR-3.4).
+    """
+
+    _paths: set[Path] = field(default_factory=set)
+
+    def toggle(self, path: Path) -> None:
+        if path in self._paths:
+            self._paths.remove(path)
+        else:
+            self._paths.add(path)
+
+    def select_all(self, paths: Iterable[Path]) -> None:
+        for p in paths:
+            self._paths.add(p)
+
+    def clear(self) -> None:
+        self._paths.clear()
+
+    def is_selected(self, path: Path) -> bool:
+        return path in self._paths
+
+    def count(self) -> int:
+        return len(self._paths)
+
+    def selected_paths(self) -> set[Path]:
+        return set(self._paths)
+
+
 def format_undo_banner(
     pre_restore_ts_full: str, entry_ids: Iterable[str]
 ) -> list[str]:
@@ -216,15 +271,28 @@ class _SnapshotRowItem(ListItem):
 
 
 class _PlannedRowItem(ListItem):
+    """Selectable row. The marker re-renders on toggle without rebuilding the list."""
+
     def __init__(self, row: PlannedRow):
-        super().__init__(Label(row.label))
+        self._label = Static(row.label_with("[ ]"), classes="backup-file-row")
+        super().__init__(self._label)
         self.row = row
+
+    def update_render(self, selection: ItemSelection) -> None:
+        marker = "[x]" if selection.is_selected(self.row.item.source_path) else "[ ]"
+        self._label.update(self.row.label_with(marker))
 
 
 class _ExtraRowItem(ListItem):
+    """Non-selectable — extras are reported, never touched (FR-3.4)."""
+
     def __init__(self, row: ExtraRow):
         super().__init__(Label(row.label))
         self.row = row
+
+    def update_render(self, selection: ItemSelection) -> None:
+        # Extras don't change appearance — selection has no effect on them.
+        return
 
 
 # ---------- snapshots screen (level 1) ----------
@@ -370,7 +438,10 @@ class RestoreFilesScreen(Screen):
     """
 
     BINDINGS = [
-        Binding("R", "restore", "Restore (overwrite live files)", show=True),
+        Binding("space", "toggle", "Toggle", show=True),
+        Binding("a", "select_all", "All", show=True),
+        Binding("n", "clear", "Clear", show=True),
+        Binding("R", "restore", "Restore", show=True),
         Binding("backspace,escape", "app.pop_screen", "Back", show=True),
     ]
 
@@ -387,6 +458,7 @@ class RestoreFilesScreen(Screen):
         self.snapshot_ts = snapshot_ts
         self._planned: list[PlannedRow] = []
         self._extras: list[ExtraRow] = []
+        self._selection = ItemSelection()
         self._error: str | None = None
         self._build_plan()
 
@@ -410,8 +482,10 @@ class RestoreFilesScreen(Screen):
                 )
             else:
                 yield Static(
-                    f"Press R to restore — {len(self._planned)} file(s) will be "
-                    f"overwritten, {len(self._extras)} extra(s) reported.",
+                    f"Space to select · R to restore — "
+                    f"{len(self._planned)} file(s) overwriteable, "
+                    f"{len(self._extras)} extra(s) reported.  "
+                    f"R with nothing selected restores all visible.",
                     classes="muted",
                 )
                 rows: list[ListItem] = [
@@ -439,8 +513,33 @@ class RestoreFilesScreen(Screen):
 
     # ---------- actions ----------
 
+    def action_toggle(self) -> None:
+        focused = self.focused
+        if not isinstance(focused, ListView):
+            return
+        highlighted = focused.highlighted_child
+        if isinstance(highlighted, _PlannedRowItem):
+            self._selection.toggle(highlighted.row.item.source_path)
+            self._render_rows()
+        # _ExtraRowItem hits no-op intentionally — FR-3.4 extras aren't pickable.
+
+    def action_select_all(self) -> None:
+        self._selection.select_all(r.item.source_path for r in self._planned)
+        self._render_rows()
+
+    def action_clear(self) -> None:
+        self._selection.clear()
+        self._render_rows()
+
     def action_restore(self) -> None:
-        """Run the restore. No confirmation by design (NFR-2 + §9)."""
+        """Run the restore. No confirmation by design (NFR-2 + §9).
+
+        Scope mirrors the CLI:
+          * Selection non-empty → restore only those paths (FR-3.1
+            scope 1, the surgical "just the file I broke" case).
+          * Selection empty → restore every visible planned row
+            (FR-3.1 scope 2, the "put this entry back" case).
+        """
         if not self._planned and not self._extras:
             self._set_result("Nothing to restore.", alert=False)
             return
@@ -463,10 +562,17 @@ class RestoreFilesScreen(Screen):
         store = make_backup_store(store_path, target_user=self.context.target_user)
         baselines = BaselineStore.load(store_path, target_user=self.context.target_user)
         resolved_map = {self.resolved.entry.id: self.resolved}
+        # Empty selection → no path filter (restore all planned). Non-empty
+        # selection → narrow to those paths. The planner does the actual
+        # filtering against the snapshot's contents, so we just hand it
+        # whichever set the user picked.
+        file_paths: tuple[Path, ...] | None = None
+        if self._selection.count() > 0:
+            file_paths = tuple(sorted(self._selection.selected_paths()))
         plan = plan_restore(
             selection=RestoreSelection(
                 entry_ids=(self.resolved.entry.id,),
-                file_paths=None,
+                file_paths=file_paths,
                 snapshot_choice=SnapshotChoice(
                     timestamps={self.resolved.entry.id: self.snapshot_ts}
                 ),
@@ -541,6 +647,16 @@ class RestoreFilesScreen(Screen):
             resolved_entries=resolved_map,
             target_user=self.context.target_user,
         )
+
+    def _render_rows(self) -> None:
+        """Refresh selection markers in place without rebuilding the list."""
+        try:
+            view = self.query_one("#restore-files-list", ListView)
+        except Exception:
+            return
+        for child in view.children:
+            if isinstance(child, (_PlannedRowItem, _ExtraRowItem)):
+                child.update_render(self._selection)
 
     def _set_result(self, text: str, *, alert: bool) -> None:
         try:
