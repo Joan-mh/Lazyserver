@@ -88,3 +88,42 @@ files the student didn't pick).
 **Relates to:** [spec / schema / arch section]
 
 [What it is, why it was deferred, where it might land.]
+
+---
+
+## In-app AI prompt generator for new entries
+
+**Status:** idea — candidate for v1.x
+**Raised:** during Phase 4/5 work, prompted by "how does a user create a new app?"
+**Relates to:** schema §9 (AI prompt template); the deferred "create new entry" feature.
+
+Writing a good tconf YAML by hand is hard for *any* user. The difficulty isn't
+typing — it's *knowing* a service's config files, their per-distro paths, and
+what a good example looks like. A blank form doesn't help with that; an AI can.
+LazyServer already designed the AI prompt template (schema §9), but today it
+lives in a docs file the user must find, read, copy, and fill in by hand. This
+idea brings it into the app.
+
+**Level 1 (preferred, simple).** A menu option — e.g. "Add a new entry" — asks
+the user a few questions (name, service or app, which distros), then **generates
+the filled-in AI prompt** from the schema §9 template and shows/copies it for the
+user to paste into an external AI. The user drops the AI's YAML response into the
+tconf folder. LazyServer makes **no network calls** — it just produces the
+ready-to-use prompt. Offline-friendly, no API key, no new dependency. Bonus
+didactic value: the structured prompt teaches the student what information
+defines a service (install command, config files, per-distro paths).
+
+**Level 2 (fancier, deferred further).** LazyServer calls an AI API directly,
+validates the returned YAML, and writes the file in-app. Slicker, but needs an
+API key, network access, and error handling — probably overkill for a classroom
+tool running on local VMs, and it breaks the offline-friendly property.
+
+**Why parked, not now:** we're mid Phase 4/5, and creating whole new entries was
+deliberately deferred (manual YAML + the AI prompt template covers it for now).
+But Level 1 is small — it surfaces an already-designed template where the user
+needs it — and is worth doing once the core phases land.
+
+**Related note:** app code paths are currently under-tested. All VM testing so
+far has been services (bind9, nginx, etc.). The neovim app path (backup of
+`~/.config/nvim/init.lua`, ownership = target user, `~` expansion) should be
+explicitly exercised on a VM — see handoff notes.
