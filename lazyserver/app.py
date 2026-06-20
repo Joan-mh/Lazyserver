@@ -152,6 +152,10 @@ class LazyServerApp(App):
         Binding("escape", "pop_or_quit", "Back", show=True, priority=True),
         Binding("d", "toggle_dry_run", "Dry-run", show=True),
         Binding("b", "open_backup", "Backup", show=True),
+        # Uppercase R for the "full recovery" screen — lowercase `r`
+        # stays the per-screen restore key. The case mirrors backup's
+        # b/B convention: the bigger operation takes the shift.
+        Binding("R", "open_recover", "Recover", show=True),
     ]
 
     def __init__(self, context: AppContext, *, dry_run: bool = False):
@@ -183,6 +187,18 @@ class LazyServerApp(App):
         if isinstance(self.screen, BackupScreen):
             return
         self.push_screen(BackupScreen(self.context))
+
+    def action_open_recover(self) -> None:
+        """Push the recovery screen on top from anywhere (Phase 6).
+
+        Same no-op guard as backup — repeated 'R' presses do not
+        stack identical screens.
+        """
+        from .ui.recover_screen import RecoverScreen
+
+        if isinstance(self.screen, RecoverScreen):
+            return
+        self.push_screen(RecoverScreen(self.context))
 
     def action_toggle_dry_run(self) -> None:
         """Flip session dry-run; refresh every visible status line."""
