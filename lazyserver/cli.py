@@ -52,6 +52,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override backup store path (else settings.backup_store).",
     )
 
+    restore = sub.add_parser(
+        "restore",
+        help="Restore files from snapshots (FR-3, Phase 5).",
+    )
+    rmode = restore.add_mutually_exclusive_group(required=True)
+    rmode.add_argument(
+        "--file",
+        type=Path,
+        metavar="PATH",
+        help="Restore one live file from a snapshot.",
+    )
+    rmode.add_argument(
+        "--entry",
+        metavar="ID",
+        help="Restore every file of one entry from a snapshot.",
+    )
+    rmode.add_argument(
+        "--all",
+        dest="all_entries",
+        action="store_true",
+        help="Restore every entry's latest snapshot.",
+    )
+    restore.add_argument(
+        "--snapshot",
+        metavar="TS",
+        help=(
+            "Pin a specific snapshot timestamp (not valid with --all). "
+            "Default: latest available for each entry."
+        ),
+    )
+    restore.add_argument(
+        "--store",
+        type=Path,
+        metavar="PATH",
+        help="Override backup store path (else settings.backup_store).",
+    )
+
     recover = sub.add_parser(
         "recover",
         help="Full recovery (Phase 6) — not yet implemented.",
@@ -81,6 +118,18 @@ def main(argv: list[str] | None = None) -> int:
             list_only=args.list_only,
             all_pending=args.all_pending,
             entry_ids=args.entry,
+            store_override=args.store,
+            dry_run=args.dry_run,
+        )
+
+    if args.command == "restore":
+        from .backup.restore_cli import cmd_restore
+
+        return cmd_restore(
+            file=args.file,
+            entry=args.entry,
+            all_entries=args.all_entries,
+            snapshot=args.snapshot,
             store_override=args.store,
             dry_run=args.dry_run,
         )
