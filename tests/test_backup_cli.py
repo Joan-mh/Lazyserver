@@ -227,6 +227,75 @@ def test_first_run_announces_backup_store_creation(fake_context, tmp_path):
     assert f"Created backup store at {store_path}" in out.getvalue()
 
 
+def test_auto_created_store_root_is_owned_by_target_user(
+    fake_context, tmp_path, monkeypatch
+):
+    """End-to-end: a store root LazyServer creates under sudo must end up
+    owned by the target user, not root. Tests run as a normal user so
+    we spy on the underlying chown call to capture the uid/gid the
+    backup layer asked the kernel for."""
+    from lazyserver.backup import _fsutil
+
+    ctx, store_path = fake_context
+    assert not store_path.exists()
+    src = tmp_path / "smoke.conf"
+    src.write_text("v1", encoding="utf-8")
+
+    calls: list[tuple[str, int, int]] = []
+    real_chown = _fsutil.os.chown
+
+    def spy_chown(path, uid, gid, **kw):
+        calls.append((str(path), uid, gid))
+        return real_chown(path, uid, gid, **kw)
+
+    monkeypatch.setattr(_fsutil.os, "chown", spy_chown)
+
+    code = backup_cli.cmd_backup(
+        list_only=False, all_pending=True, entry_ids=None,
+        store_override=None, dry_run=False,
+        out=io.StringIO(), err=io.StringIO(),
+    )
+
+    assert code == backup_cli.EXIT_OK
+    # The store root itself was chowned to the target user.
+    root_calls = [c for c in calls if c[0] == str(store_path)]
+    assert root_calls, "store root was never chowned"
+    assert all(uid == ctx.target_user.uid for _, uid, _ in root_calls)
+
+
+def test_pre_existing_store_root_is_not_chowned(
+    fake_context, tmp_path, monkeypatch
+):
+    """Mirror of the 4b rule applied throughout the store: a root the
+    student pre-created reflects their deliberate choice — LazyServer
+    must not touch its ownership, only chown what it creates itself."""
+    from lazyserver.backup import _fsutil
+
+    ctx, store_path = fake_context
+    store_path.mkdir(mode=0o700)  # student pre-created with weird mode
+    src = tmp_path / "smoke.conf"
+    src.write_text("v1", encoding="utf-8")
+
+    calls: list[tuple[str, int, int]] = []
+    real_chown = _fsutil.os.chown
+
+    def spy_chown(path, uid, gid, **kw):
+        calls.append((str(path), uid, gid))
+        return real_chown(path, uid, gid, **kw)
+
+    monkeypatch.setattr(_fsutil.os, "chown", spy_chown)
+
+    backup_cli.cmd_backup(
+        list_only=False, all_pending=True, entry_ids=None,
+        store_override=None, dry_run=False,
+        out=io.StringIO(), err=io.StringIO(),
+    )
+
+    assert all(c[0] != str(store_path) for c in calls), (
+        f"chown was called on pre-existing store root: {calls}"
+    )
+
+
 def test_subsequent_run_does_not_announce_creation(fake_context, tmp_path):
     """The notice fires only on cold-create. A second run on an existing
     store must not repeat it."""

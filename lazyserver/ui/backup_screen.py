@@ -35,6 +35,7 @@ from textual.widgets import Footer, Header, ListItem, ListView, Static
 
 from ..app import AppContext, format_status_line
 from ..config import resolved_backup_store
+from ..backup._fsutil import ensure_owned_dir
 from ..backup.pending import (
     BaselineStore,
     PendingItem,
@@ -430,8 +431,7 @@ class BackupScreen(Screen):
             self._set_result("No backup store configured.", alert=True)
             return
 
-        created = not store_path.exists()
-        store_path.mkdir(parents=True, exist_ok=True)
+        created = ensure_owned_dir(store_path, self.context.target_user)
         create_notice = (
             f"Created backup store at {store_path}\n" if created else ""
         )

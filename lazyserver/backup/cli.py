@@ -28,6 +28,7 @@ from ..app import AppContext, BootstrapError, bootstrap
 from ..config import Settings, expand_user_path, resolved_backup_store
 from ..platform.user import TargetUser
 from ..tconf.resolve import ResolutionError, ResolvedEntry, resolve
+from ._fsutil import ensure_owned_dir
 from .pending import (
     BaselineStore,
     BASELINES_FILENAME,
@@ -145,8 +146,7 @@ def _run_real(
     err,
 ) -> int:
     """Actually write snapshots + commit."""
-    created = not store_path.exists()
-    store_path.mkdir(parents=True, exist_ok=True)
+    created = ensure_owned_dir(store_path, context.target_user)
     if created:
         print(f"Created backup store at {store_path}", file=out)
         print(file=out)

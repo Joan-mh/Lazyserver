@@ -74,6 +74,41 @@ def mkdir_owned_chain(
         _chown(d, target_user)
 
 
+def ensure_owned_dir(
+    path: Path,
+    target_user: TargetUser | None,
+    *,
+    dir_mode: int = 0o755,
+) -> bool:
+    """Ensure `path` exists as a directory; chown what we create.
+
+    Returns True iff this call created `path` (the announcement
+    trigger). A pre-existing `path` is left strictly untouched — same
+    rule as `mkdir_owned_chain`'s `stop_at`: a directory the student
+    pre-created is their deliberate ownership choice, not ours to
+    override. Intermediate parents that we mkdir on the way down are
+    chowned along with the leaf, so a student doing `git clone` or
+    `rsync` on the resulting tree owns all of it, not just the leaves.
+
+    Used to materialise the backup store root: previously a silent
+    `mkdir(parents=True, exist_ok=True)` from a root-run session left
+    the store root root-owned, which broke the "student fully owns
+    their backups" guarantee that the rest of the store layer upholds
+    (mkdir_owned_chain, write_owned).
+    """
+    if path.exists():
+        return False
+    to_create: list[Path] = []
+    cursor = path
+    while not cursor.exists():
+        to_create.append(cursor)
+        cursor = cursor.parent
+    for d in reversed(to_create):
+        d.mkdir(mode=dir_mode)
+        _chown(d, target_user)
+    return True
+
+
 def write_owned(
     path: Path,
     content: bytes,

@@ -14,7 +14,12 @@ from pathlib import Path
 
 import pytest
 
-from lazyserver.backup._fsutil import mkdir_owned_chain, write_owned
+from lazyserver.backup import _fsutil
+from lazyserver.backup._fsutil import (
+    ensure_owned_dir,
+    mkdir_owned_chain,
+    write_owned,
+)
 from lazyserver.platform.user import TargetUser
 
 
@@ -84,6 +89,84 @@ def test_mkdir_owned_chain_target_user_none_still_creates_dirs(tmp_path: Path):
     leaf = tmp_path / "a" / "b"
     mkdir_owned_chain(leaf, None, stop_at=tmp_path)
     assert leaf.is_dir()
+
+
+# ---------- ensure_owned_dir ----------
+
+
+def test_ensure_owned_dir_creates_and_returns_true(tmp_path: Path):
+    root = tmp_path / "store"
+    assert not root.exists()
+    assert ensure_owned_dir(root, _self_user()) is True
+    assert root.is_dir()
+
+
+def test_ensure_owned_dir_returns_false_on_existing(tmp_path: Path):
+    """A pre-existing root is the student's choice — leave it alone.
+    Mirrors the `stop_at` contract in mkdir_owned_chain."""
+    root = tmp_path / "store"
+    root.mkdir(mode=0o700)  # deliberately weird mode
+    pre_stat = root.stat()
+    assert ensure_owned_dir(root, _self_user()) is False
+    after = root.stat()
+    # No mode flip, no ownership change, no recreation.
+    assert after.st_mode == pre_stat.st_mode
+    assert after.st_ino == pre_stat.st_ino
+
+
+def test_ensure_owned_dir_chowns_root_when_creating(tmp_path, monkeypatch):
+    """The core guarantee: a store root LazyServer creates must end up
+    owned by the target user, not by root. We can't actually change uid
+    without root, so we spy on `os.chown` to prove the call goes through
+    with the target user's uid/gid."""
+    calls: list[tuple[str, int, int]] = []
+
+    def fake_chown(path, uid, gid):
+        calls.append((str(path), uid, gid))
+
+    monkeypatch.setattr(_fsutil.os, "chown", fake_chown)
+
+    target = TargetUser(name="alice", uid=4242, gid=4243, home=tmp_path)
+    root = tmp_path / "fresh-store"
+    assert ensure_owned_dir(root, target) is True
+
+    chowned = [c for c in calls if c[0] == str(root)]
+    assert chowned == [(str(root), 4242, 4243)]
+
+
+def test_ensure_owned_dir_does_not_chown_when_path_existed(tmp_path, monkeypatch):
+    """Pre-existing path → no chown attempted at all (4b: student's choice)."""
+    calls: list[tuple[str, int, int]] = []
+    monkeypatch.setattr(_fsutil.os, "chown", lambda p, u, g: calls.append((str(p), u, g)))
+
+    root = tmp_path / "store"
+    root.mkdir()
+    target = TargetUser(name="alice", uid=4242, gid=4243, home=tmp_path)
+    assert ensure_owned_dir(root, target) is False
+    assert calls == []
+
+
+def test_ensure_owned_dir_chowns_intermediate_parents(tmp_path, monkeypatch):
+    """If parents are created on the way down, they belong to the
+    student too — otherwise the student git-cloning the tree owns only
+    the leaves, not the wrapper directory."""
+    calls: list[tuple[str, int, int]] = []
+    monkeypatch.setattr(_fsutil.os, "chown", lambda p, u, g: calls.append((str(p), u, g)))
+
+    target = TargetUser(name="alice", uid=4242, gid=4243, home=tmp_path)
+    root = tmp_path / "outer" / "inner" / "store"
+    assert ensure_owned_dir(root, target) is True
+
+    chowned_paths = {c[0] for c in calls}
+    assert str(tmp_path / "outer") in chowned_paths
+    assert str(tmp_path / "outer" / "inner") in chowned_paths
+    assert str(root) in chowned_paths
+
+
+def test_ensure_owned_dir_target_user_none_still_creates(tmp_path: Path):
+    root = tmp_path / "store"
+    assert ensure_owned_dir(root, None) is True
+    assert root.is_dir()
 
 
 # ---------- write_owned ----------
