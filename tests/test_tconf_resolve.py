@@ -65,9 +65,13 @@ def test_actions_filled_from_systemd_defaults(tmp_path: Path):
     r = resolve(entry, "ubuntu")
     assert r.actions["start"] == ("systemctl", "start", "ex")
     assert r.actions["reload"] == ("systemctl", "reload", "ex")
+    # `enable_now` is the systemd "enable for autostart + start" composite
+    # consumed by recovery (FR-5.3.1); see tconf/defaults.py.
     assert set(r.actions) == {
-        "start", "stop", "restart", "reload", "enable", "disable", "status"
+        "start", "stop", "restart", "reload",
+        "enable", "disable", "status", "enable_now",
     }
+    assert r.actions["enable_now"] == ("systemctl", "enable", "--now", "ex")
 
 
 def test_action_override_replaces_template(tmp_path: Path):

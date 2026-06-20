@@ -29,6 +29,12 @@ ACTION_TEMPLATES: dict[str, dict[str, tuple[str, ...]]] = {
         "reload": ("systemctl", "reload", "{unit}"),
         "enable": ("systemctl", "enable", "{unit}"),
         "disable": ("systemctl", "disable", "{unit}"),
+        # Phase 6 recovery: "enable for autostart AND start now" in
+        # one shot. Kept as a distinct key from plain `enable` so the
+        # EntryScreen's per-action UX (FR-1.5) is unchanged — pressing
+        # Enable still just enables, not start-and-enable. The recovery
+        # planner consumes this key for its enable step (FR-5.3.1).
+        "enable_now": ("systemctl", "enable", "--now", "{unit}"),
         # --no-pager so captured stdout is the full text, not a
         # `less`-driven empty buffer when invoked under a non-tty
         # subprocess. Modern systemctl skips paging without a tty
