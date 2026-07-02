@@ -120,10 +120,12 @@ to use it, but does not reproduce it (so it can't drift out of sync).
 3. **Fill in the `[bracketed]` slots** with the facts you gathered
    above. Every bracket is a decision the AI cannot make for you —
    if you leave one blank, the output will hallucinate.
-4. **Paste the schema.** The prompt ends with `[paste
-   tconf-schema.md]`. Copy the entire `tconf-schema.md` file
-   (sections 1 through 10) into the message. This is the specification
-   the AI has to follow.
+4. **Paste sections 1–8 of the schema.** The prompt's last line
+   reads `[paste tconf-schema.md sections 1 through 8]`. Copy those
+   sections into the message — that's what the AI needs to generate a
+   valid file. §9 is this prompt itself (skipping it avoids nesting
+   the prompt inside its own attachment) and §10 is decision history
+   (not useful to the generator).
 5. **Send** the message.
 6. **Save the output** as `~/tconf-overrides/services/<id>.yaml` (or
    `apps/<id>.yaml`).
