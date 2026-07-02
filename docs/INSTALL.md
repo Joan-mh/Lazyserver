@@ -144,6 +144,11 @@ ERROR: Cannot uninstall Pygments 2.17.2, RECORD file not found.
 Hint: The package was installed by debian.
 ```
 
+The version number will drift as Debian updates Pygments. Match on
+the stable identifying phrases — **`RECORD file not found`** and
+**`installed by debian`** — not on `2.17.2`. That's how you recognise
+this specific conflict on a newer Pygments.
+
 Older pip versions phrased the same conflict as
 `error: uninstall-distutils-installed-package  Cannot uninstall
 'Pygments'. It is a distutils installed project`. Either way, the
