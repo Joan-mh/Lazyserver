@@ -122,3 +122,77 @@ tool running on local VMs, and it breaks the offline-friendly property.
 deliberately deferred (manual YAML + the AI prompt template covers it for now).
 But Level 1 is small — it surfaces an already-designed template where the user
 needs it — and is worth doing once the core phases land.
+
+---
+
+## Recovery report — write incrementally so interrupted runs leave a trail
+
+**Status:** deferred (small robustness follow-up to Phase 6)
+**Raised:** 2026-07-02, first VM recovery test — Ctrl+C mid-run left zero artifacts.
+**Relates to:** FR-5.3.2/3 (recovery log + JSON), `recovery/cli.py`, `recovery/report.py`.
+
+Today the recovery report (`recovery-<ts>.log` + `.json`) is written once, at the
+end, after `execute_recovery` returns. If the operator interrupts the run — or
+the process dies mid-entry — nothing is written, and there is no forensic trail
+of what already happened (which entries installed, which restored, where it
+stopped). On a first-time Phase 6 verification this is exactly when you most
+want the log.
+
+**Direction:** write per-entry as the orchestrator finishes each `EntryResult`,
+so a killed run still leaves a partial artifact that says "these entries done,
+we were mid-<next> when interrupted". Two shapes to consider: (a) append
+per-entry lines to the human log + flush after each; JSON stays end-of-run.
+(b) write a rolling JSON as well — heavier, but recoverable state. (a) is
+probably enough.
+
+**Why deferred:** the semantics change (skip-no-backup) landed first because it
+was the root cause of the interruption; incremental writes are a general
+robustness improvement that stands on its own.
+
+---
+
+## Recovery installs — set `DEBIAN_FRONTEND=noninteractive`
+
+**Status:** deferred (small robustness follow-up to Phase 6)
+**Raised:** 2026-07-02, VM recovery test — Postfix's interactive install prompt stalled `recover --all`.
+**Relates to:** `services/control.py::execute_install`, `platform/runner.py`, FR-5.3.1.
+
+Some Debian/Ubuntu packages (Postfix is the canonical case; also mysql-server,
+iptables-persistent, etc.) present an ncurses configuration dialog on install.
+On an interactive shell that is fine — during a non-interactive `lsrv recover
+--all` it hangs the process indefinitely, since there is no TTY to accept
+input and the package waits forever.
+
+**Direction:** for recovery-driven installs specifically, set
+`DEBIAN_FRONTEND=noninteractive` in the subprocess environment before calling
+the resolved install argv. Package managers on other distros are already
+non-interactive by default; this only bites Debian family. Scoping to recovery
+(rather than every install everywhere) keeps interactive `lsrv install`
+behaviour unchanged for the single-entry case.
+
+**Why deferred:** the immediate stall the operator hit was masked by the
+skip-no-backup change (Postfix had no backup on that VM, so it will not install
+at all now). But the moment a Debian entry *does* have a backup and *does*
+prompt, we are back to the same hang. This should land before the next Debian
+recovery test on a machine that actually has Postfix/mysql backed up.
+
+---
+
+## Recovery/CLI — friendly error for `Error opening terminal`
+
+**Status:** deferred (small UX polish)
+**Raised:** 2026-07-02, VM recovery test.
+**Relates to:** `cli.py`, TUI entry points.
+
+When the TUI is launched under a `TERM` value the local terminfo does not know
+(common on minimal VMs, containers, SSH sessions from unusual clients), the
+underlying curses layer prints a bare `Error opening terminal: <term>` and
+exits. It is technically correct but tells the user nothing about *what to do*
+(usually: `export TERM=xterm-256color` or install `ncurses-term`).
+
+**Direction:** catch the curses init error at the CLI boundary and print a
+one-line friendly message with the two most common fixes, then exit non-zero
+with the original error retained for `--verbose`.
+
+**Why deferred:** cosmetic; does not affect any recovery/backup path. Worth
+doing next time we touch the CLI startup.
