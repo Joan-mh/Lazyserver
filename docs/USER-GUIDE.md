@@ -234,15 +234,15 @@ Press `b` from anywhere to open the **Backup** screen. You see one row
 per pending file with its entry, its status (`modified`, `missing`,
 `new`), and a checkbox.
 
-| Key    | Action                              |
-|--------|-------------------------------------|
-| Space  | Toggle the focused file             |
-| `a`    | Select all                          |
-| `n`    | Clear selection                     |
-| `b`    | Back up the selected files          |
-| `B`    | Back up everything pending          |
-| `r`    | Rescan (recompute checksums)        |
-| Esc    | Back                                |
+| Key   | Action                       |
+| -------| ------------------------------|
+| Space | Toggle the focused file      |
+| `a`   | Select all                   |
+| `n`   | Clear selection              |
+| `b`   | Back up the selected files   |
+| `B`   | Back up everything pending   |
+| `r`   | Rescan (recompute checksums) |
+| Esc   | Back                         |
 
 A backup writes the current content into the backup store and updates
 the baseline checksum. Those files leave the pending list.
@@ -294,9 +294,15 @@ Your backup folder is just files. Copy it like any other folder:
 ```bash
 # to a USB drive mounted at /mnt/usb
 cp -r ~/lsrvbck /mnt/usb/
+```
 
-# to another computer over the network
-rsync -a ~/lsrvbck/ user@othermachine:~/lazyserver-backups/
+```bash
+# Remember, the backup folder is configured by you in the config file at ~/.config/lazyserver/config.toml
+# on your HOST, pull the store off the VM before you roll back:
+rsync -av user@<vm-ip>:~/lsrvbck ~/lazyserver-backup-safe/
+
+# on your HOST, push the store to the recovering VM:
+rsync -av ~/lazyserver-backup-safe/lsrvbck user@<vm-ip>:~/
 ```
 
 ### Push it to GitHub (recommended for recovery)
