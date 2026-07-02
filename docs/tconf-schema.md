@@ -336,7 +336,7 @@ Requirements:
    distribution.
 
 Here is the schema you must follow:
-[paste tconf-schema.md]
+[paste tconf-schema.md sections 1 through 8]
 ```
 
 ## 10. Resolved decisions
