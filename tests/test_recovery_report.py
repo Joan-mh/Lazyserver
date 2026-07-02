@@ -171,7 +171,10 @@ def test_tail_stderr_default_is_10_lines():
 
 def _sample_run_report() -> RecoveryReport:
     """A realistic mixed-outcome run: one OK service, one partial, one
-    failed-install (cascade), one app. Used by the golden tests."""
+    failed-install (cascade), one whole-entry skip (no backups). Used
+    by the golden tests. The no-backups app locks the new NO_BACKUPS
+    reason string into a rendered artifact — silent drift of that
+    message would break the golden."""
     bind = EntryResult(
         entry_id="bind9",
         entry_name="bind9",
@@ -206,24 +209,22 @@ def _sample_run_report() -> RecoveryReport:
         entry_id="neovim",
         entry_name="Neovim",
         is_service=False,
-        status=ENTRY_OK,
+        status=ENTRY_SKIPPED,
         steps=(
             StepResult(
                 name="install",
-                status=STATUS_OK,
-                argv=("apt-get", "install", "-y", "neovim"),
-                exit_code=0,
-                duration_s=5.1,
+                status=STATUS_SKIPPED,
+                reason="no backups — entry not part of this system",
             ),
             StepResult(
                 name="restore",
                 status=STATUS_SKIPPED,
-                reason="no snapshots in store for this entry",
+                reason="no backups — entry not part of this system",
             ),
             StepResult(
                 name="enable",
                 status=STATUS_SKIPPED,
-                reason="entry is an app (no service to enable)",
+                reason="no backups — entry not part of this system",
             ),
         ),
     )
@@ -314,10 +315,10 @@ def test_json_summary_block_counts_per_status():
     out = format_json_summary(_sample_run_report())
     summary = out["summary"]
     assert summary["total"] == 4
-    assert summary[ENTRY_OK] == 2  # bind9 + neovim
+    assert summary[ENTRY_OK] == 1  # bind9
     assert summary[ENTRY_PARTIAL] == 1  # postfix
     assert summary[ENTRY_FAILED] == 1  # nginx
-    assert summary[ENTRY_SKIPPED] == 0
+    assert summary[ENTRY_SKIPPED] == 1  # neovim (no backups)
 
 
 def test_json_success_entry_carries_argv_and_duration():
@@ -357,11 +358,14 @@ def test_json_restore_step_carries_snapshot_and_counts():
 
 
 def test_json_skipped_step_carries_reason():
+    """Whole-entry skip case: neovim had zero backups, all three steps
+    carry the same NO_BACKUPS reason so a JSON consumer can distinguish
+    'we deliberately did nothing' from a cascade or a partial run."""
     out = format_json_summary(_sample_run_report())
     neovim = next(e for e in out["entries"] if e["id"] == "neovim")
-    enable = neovim["steps"][2]
-    assert enable["status"] == STATUS_SKIPPED
-    assert "app" in enable["reason"]
+    for step in neovim["steps"]:
+        assert step["status"] == STATUS_SKIPPED
+        assert step["reason"] == "no backups — entry not part of this system"
 
 
 def test_format_json_round_trips_through_json_module():
@@ -424,9 +428,9 @@ def test_human_log_golden_mixed_outcomes():
         "  enable  : OK        (systemctl enable --now bind9, 0.4s)\n"
         "\n"
         "neovim\n"
-        "  install : OK        (apt-get install -y neovim, 5.1s)\n"
-        "  restore : SKIPPED   (no snapshots in store for this entry)\n"
-        "  enable  : SKIPPED   (entry is an app (no service to enable))\n"
+        "  install : SKIPPED   (no backups — entry not part of this system)\n"
+        "  restore : SKIPPED   (no backups — entry not part of this system)\n"
+        "  enable  : SKIPPED   (no backups — entry not part of this system)\n"
         "\n"
         "nginx\n"
         "  install : FAIL      (apt-get install -y nginx, exit 100, 4.1s)\n"
@@ -443,7 +447,7 @@ def test_human_log_golden_mixed_outcomes():
         "      stderr (tail):\n"
         "        Failed to enable unit: Unit postfix.service does not exist.\n"
         "\n"
-        "── summary: 2 OK · 1 partial · 1 failed · 0 skipped ──\n"
+        "── summary: 1 OK · 1 partial · 1 failed · 1 skipped ──\n"
     )
     assert log == expected
 

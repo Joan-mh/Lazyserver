@@ -141,9 +141,20 @@ distros:
     return resolved_map, plan, store, baselines, src, store_root
 
 
-def _seed_app_entry(tmp_path: Path):
-    """App entry: no service_unit (→ no enable step), no snapshot in
-    store (→ no restore step). Only install is applicable."""
+def _seed_app_entry(tmp_path: Path, *, seed_snapshot: bool):
+    """App entry (neovim, no service_unit → no enable step).
+
+    ``seed_snapshot`` toggles the two orchestrator paths we care about
+    for apps:
+
+      * ``True`` — user has an init.vim backup: install + restore run,
+        enable is skipped-because-app, entry rolls up to OK.
+      * ``False`` — user never backed neovim up: the planner marks the
+        whole entry skipped with ``NO_BACKUPS_REASON`` (the Phase 6 VM
+        finding), and the orchestrator must honour that — no install,
+        no restore, no enable.
+    """
+    init = tmp_path / "init.vim"
     body = f"""
 schema_version: 1
 id: neovim
@@ -152,7 +163,7 @@ kind: app
 description: x
 files:
   - id: conf
-    path: {tmp_path / 'init.vim'}
+    path: {init}
     description: x
 distros:
   ubuntu:
@@ -169,10 +180,20 @@ distros:
     store = PlainBackupStore(root=store_root, target_user=_self_user())
     baselines = BaselineStore.load(store_root, target_user=_self_user())
     resolved = [resolve_entry(e, "ubuntu", target_user=_self_user()) for e in entries]
+    if seed_snapshot:
+        init.write_text("set number", encoding="utf-8")
+        backup_pending(
+            entries=resolved,
+            store=store,
+            baselines=baselines,
+            timestamp="20260101-000000",
+        )
+        # Simulate the fresh-box state: init.vim absent until restore writes it back.
+        init.unlink()
     plan = build_recovery_plan(
         resolved_entries=resolved, store=store, distro_id="ubuntu"
     )
-    return {r.entry.id: r for r in resolved}, plan, store, baselines
+    return {r.entry.id: r for r in resolved}, plan, store, baselines, init
 
 
 # ---------- happy path ----------
@@ -346,10 +367,16 @@ def test_enable_fail_leaves_install_and_restore_intact(tmp_path, monkeypatch):
 # ---------- app entry (no enable, no restore) ----------
 
 
-def test_app_entry_install_ok_restore_and_enable_skipped(tmp_path, monkeypatch):
-    """Apps roll up to OK when install succeeds — the other two steps
-    are non-applicable by design, not failures."""
-    resolved_map, plan, store, baselines = _seed_app_entry(tmp_path)
+def test_app_entry_with_snapshot_install_and_restore_ok_enable_skipped(
+    tmp_path, monkeypatch
+):
+    """App happy path: user had an init.vim backup. Install runs,
+    restore writes the file back, enable is skipped-because-app (no
+    service to enable). Entry rolls up to OK — the app-shaped success
+    case, distinct from services."""
+    resolved_map, plan, store, baselines, init = _seed_app_entry(
+        tmp_path, seed_snapshot=True
+    )
     monkeypatch.setattr("lazyserver.services.control.run", _make_runner())
 
     report = execute_recovery(
@@ -365,10 +392,49 @@ def test_app_entry_install_ok_restore_and_enable_skipped(tmp_path, monkeypatch):
     assert entry.status == ENTRY_OK
     install, restore, enable = entry.steps
     assert install.status == STATUS_OK
-    assert restore.status == STATUS_SKIPPED
-    assert "no snapshots" in (restore.reason or "")
+    assert restore.status == STATUS_OK
+    assert restore.files_restored == 1
+    assert init.read_text() == "set number"
     assert enable.status == STATUS_SKIPPED
     assert "app" in (enable.reason or "")
+
+
+def test_entry_with_zero_snapshots_is_skipped_end_to_end(tmp_path, monkeypatch):
+    """The Phase 6 VM finding, locked as an orchestrator invariant.
+
+    A catalogue entry with zero deliberate snapshots (Postfix on the
+    VM, neovim here) must have all three steps skipped with the shared
+    ``no backups — entry not part of this system`` reason — and the
+    runner must not fire, so a hanging interactive install like
+    Postfix's cannot stall a non-interactive ``recover --all``."""
+    resolved_map, plan, store, baselines, _init = _seed_app_entry(
+        tmp_path, seed_snapshot=False
+    )
+
+    def boom_run(argv, **kwargs):
+        raise AssertionError(f"runner must not fire for skipped entry: argv={argv}")
+
+    monkeypatch.setattr("lazyserver.services.control.run", boom_run)
+
+    report = execute_recovery(
+        plan,
+        resolved_entries=resolved_map,
+        store=store,
+        baselines=baselines,
+        target_user=_self_user(),
+        timestamp="20260620-153045",
+    )
+    entry = report.entries[0]
+    assert entry.entry_id == "neovim"
+    # derive_entry_status: all steps SKIPPED → entry SKIPPED.
+    from lazyserver.recovery.plan import NO_BACKUPS_REASON
+    from lazyserver.recovery.report import ENTRY_SKIPPED
+
+    assert entry.status == ENTRY_SKIPPED
+    install, restore, enable = entry.steps
+    for step in (install, restore, enable):
+        assert step.status == STATUS_SKIPPED
+        assert step.reason == NO_BACKUPS_REASON
 
 
 # ---------- dry-run ----------

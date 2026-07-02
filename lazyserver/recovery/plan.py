@@ -16,11 +16,26 @@ honestly to the operator (FR-5.3.2 says the human log explains
 "everything done", and how we ordered work is part of that). A
 dependency DAG is deferred until a real cross-entry need shows up.
 
+**Backup store is ground truth.** An entry with zero deliberate
+snapshots was never actually managed on this system — the tconf
+catalogue may list it, but ``lsrv backup`` never captured it, so
+recovery has no evidence it was here to put back. Recovery is *not*
+first-time provisioning: for those entries the planner skips the
+whole entry (install + restore + enable) with a single reason, rather
+than installing a catalogue service the operator never used. This
+avoids the concrete failure mode where a Debian catalogue entry
+(e.g. Postfix) would prompt on install and hang a non-interactive
+``recover --all``. The rule is "zero deliberate snapshots = skip
+entry"; partial coverage (some files backed up, others not) still
+recovers what the last snapshot holds.
+
 **Latest snapshot per entry.** Pre-restore snapshots are skipped when
 picking the restore target: they are undo handles for a previous
 restore, not the user's last deliberate backup. Recovering from one
 would mean "put me back to the broken thing I was undoing" — never
-what we want on a fresh box.
+what we want on a fresh box. An entry whose *only* snapshots are
+pre-restore handles therefore has zero deliberate snapshots and falls
+into the whole-entry skip above.
 
 **The ``enable`` step uses ``enable_now``** (``systemctl enable --now``)
 so recovery enables-for-autostart AND starts the service in one shot,
@@ -43,6 +58,13 @@ ORDERING_NOTE = (
     "Ordering is not dependency-aware; if one entry depends on another "
     "being installed first, that ordering is not enforced."
 )
+
+# Reason attached to every step of an entry that has zero deliberate
+# snapshots in the store. Deliberately distinct from the old
+# restore-only "no snapshots in store for this entry" message: the
+# report should read "we did not touch this entry at all" (deliberate,
+# whole-entry skip), not "install ran, restore did not" (half-run).
+NO_BACKUPS_REASON = "no backups — entry not part of this system"
 
 
 @dataclass(frozen=True)
@@ -135,12 +157,35 @@ def build_recovery_plan(
 
 
 def _plan_one(resolved: ResolvedEntry, store: BackupStore) -> EntryPlan:
+    is_service = resolved.entry.kind == KIND_SERVICE
+    snapshot = _latest_deliberate_snapshot(store, resolved.entry.id)
+    if snapshot is None:
+        # Zero deliberate snapshots: no evidence this entry was ever
+        # part of this system. Skip all three steps with one reason so
+        # the report reads as a deliberate skip, not a half-run.
+        return EntryPlan(
+            entry_id=resolved.entry.id,
+            entry_name=resolved.entry.name,
+            is_service=is_service,
+            install=InstallStep(
+                applicable=False, argv=None, reason_skipped=NO_BACKUPS_REASON
+            ),
+            restore=RestoreStep(
+                applicable=False,
+                snapshot=None,
+                file_count=0,
+                reason_skipped=NO_BACKUPS_REASON,
+            ),
+            enable=EnableStep(
+                applicable=False, argv=None, reason_skipped=NO_BACKUPS_REASON
+            ),
+        )
     return EntryPlan(
         entry_id=resolved.entry.id,
         entry_name=resolved.entry.name,
-        is_service=(resolved.entry.kind == KIND_SERVICE),
+        is_service=is_service,
         install=_plan_install(resolved),
-        restore=_plan_restore(resolved, store),
+        restore=_plan_restore(resolved, store, snapshot=snapshot),
         enable=_plan_enable(resolved),
     )
 
@@ -156,15 +201,12 @@ def _plan_install(resolved: ResolvedEntry) -> InstallStep:
     return InstallStep(applicable=True, argv=argv)
 
 
-def _plan_restore(resolved: ResolvedEntry, store: BackupStore) -> RestoreStep:
-    snapshot = _latest_deliberate_snapshot(store, resolved.entry.id)
-    if snapshot is None:
-        return RestoreStep(
-            applicable=False,
-            snapshot=None,
-            file_count=0,
-            reason_skipped="no snapshots in store for this entry",
-        )
+def _plan_restore(
+    resolved: ResolvedEntry, store: BackupStore, *, snapshot: str
+) -> RestoreStep:
+    # Caller guarantees ``snapshot`` is a real deliberate timestamp;
+    # the zero-snapshot case is handled at the entry level in
+    # ``_plan_one`` (whole-entry skip with NO_BACKUPS_REASON).
     file_count = len(store.list_files(resolved.entry.id, snapshot))
     return RestoreStep(
         applicable=True,

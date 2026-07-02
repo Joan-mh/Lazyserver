@@ -24,6 +24,7 @@ from lazyserver.backup.restore import PRE_RESTORE_SUFFIX
 from lazyserver.backup.store_plain import PlainBackupStore
 from lazyserver.platform.user import TargetUser
 from lazyserver.recovery.plan import (
+    NO_BACKUPS_REASON,
     ORDERING_NOTE,
     EnableStep,
     EntryPlan,
@@ -147,6 +148,9 @@ def test_plan_carries_distro_id(tmp_path):
 
 def test_install_step_applicable_when_argv_present(tmp_path):
     store = _store(tmp_path)
+    # Seed a snapshot so the whole-entry skip does not fire; this test
+    # is about the install step's own applicability, not backup gating.
+    _make_snapshot(store, "bind9", "20260601-000000")
     plan = build_recovery_plan(
         resolved_entries=[
             _resolved("bind9", install=("apt-get", "install", "-y", "bind9"))
@@ -162,8 +166,11 @@ def test_install_step_applicable_when_argv_present(tmp_path):
 
 def test_install_step_not_applicable_when_no_argv(tmp_path):
     """An entry without install — e.g. a pre-installed tool the user
-    is only managing config for — must not stall recovery."""
+    is only managing config for — must not stall recovery. Snapshot is
+    seeded so we exercise the per-step 'no install command' reason
+    rather than the whole-entry no-backup skip."""
     store = _store(tmp_path)
+    _make_snapshot(store, "preinstalled", "20260601-000000")
     plan = build_recovery_plan(
         resolved_entries=[_resolved("preinstalled", install=())],
         store=store,
@@ -213,41 +220,66 @@ def test_restore_step_skips_pre_restore_snapshots_when_picking_latest(tmp_path):
     assert step.snapshot == "20260201-000000"
 
 
-def test_restore_step_returns_none_when_only_pre_restore_snapshots_exist(tmp_path):
+def test_only_pre_restore_snapshots_skips_whole_entry(tmp_path):
     """Pathological case: the only snapshot is a pre-restore handle.
-    We refuse to use it (would restore the broken state) and report
-    'no deliberate snapshots' rather than corrupting recovery."""
+    Pre-restore snapshots are undo handles, not deliberate backups, so
+    an entry whose *only* snapshots are pre-restore ones has zero
+    deliberate backups — the whole entry is skipped, not just restore.
+    Using the pre-restore snapshot would put the broken pre-undo state
+    back; installing anyway would treat recovery as provisioning."""
     store = _store(tmp_path)
     _make_snapshot(store, "bind9", f"20260301-000000{PRE_RESTORE_SUFFIX}")
     plan = build_recovery_plan(
         resolved_entries=[_resolved("bind9")], store=store, distro_id="ubuntu"
     )
-    step = plan.entries[0].restore
-    assert step.applicable is False
-    assert step.snapshot is None
-    assert "no snapshots" in (step.reason_skipped or "")
+    entry_plan = plan.entries[0]
+    assert entry_plan.install.applicable is False
+    assert entry_plan.install.reason_skipped == NO_BACKUPS_REASON
+    assert entry_plan.restore.applicable is False
+    assert entry_plan.restore.snapshot is None
+    assert entry_plan.restore.reason_skipped == NO_BACKUPS_REASON
+    assert entry_plan.enable.applicable is False
+    assert entry_plan.enable.reason_skipped == NO_BACKUPS_REASON
 
 
-def test_restore_step_not_applicable_when_entry_never_backed_up(tmp_path):
-    """tconf may list an entry the user never managed; recovery
-    installs and enables it but has nothing to restore. The orchestrator
-    will still run install + enable for such entries — this is the
-    real fresh-box case where the user cloned tconf without (or
-    before) ever backing anything up."""
+def test_zero_snapshots_skips_whole_entry(tmp_path):
+    """Backup store is ground truth: a catalogue entry that was never
+    backed up was never actually part of this system. Recovery is not
+    first-time provisioning, so the planner skips install + restore +
+    enable with a single unified reason rather than installing a
+    catalogue service the operator never used. This is the concrete
+    fix for the Postfix/Squid stall seen on the first VM recovery
+    test — those entries had definitions but zero snapshots, and the
+    old behaviour installed them anyway."""
     store = _store(tmp_path)
     plan = build_recovery_plan(
         resolved_entries=[_resolved("untouched")], store=store, distro_id="ubuntu"
     )
     entry_plan = plan.entries[0]
-    # Restore is the only step that should be marked not-applicable.
+    # All three steps skipped with the same reason — one honest outcome.
+    assert entry_plan.install.applicable is False
+    assert entry_plan.install.argv is None
+    assert entry_plan.install.reason_skipped == NO_BACKUPS_REASON
     assert entry_plan.restore.applicable is False
     assert entry_plan.restore.snapshot is None
     assert entry_plan.restore.file_count == 0
-    # install + enable are still produced — the plan stays usable.
-    assert entry_plan.install.applicable is True
-    assert entry_plan.install.argv is not None
-    assert entry_plan.enable.applicable is True
-    assert entry_plan.enable.argv is not None
+    assert entry_plan.restore.reason_skipped == NO_BACKUPS_REASON
+    assert entry_plan.enable.applicable is False
+    assert entry_plan.enable.argv is None
+    assert entry_plan.enable.reason_skipped == NO_BACKUPS_REASON
+
+
+def test_no_backups_reason_message_is_operator_readable(tmp_path):
+    """Lock the exact reason string: the report renders this verbatim
+    to the operator, so the wording is part of the UX. Distinct from
+    the old restore-only 'no snapshots in store for this entry' — this
+    reads as a deliberate whole-entry skip, not a half-run."""
+    store = _store(tmp_path)
+    plan = build_recovery_plan(
+        resolved_entries=[_resolved("untouched")], store=store, distro_id="ubuntu"
+    )
+    assert NO_BACKUPS_REASON == "no backups — entry not part of this system"
+    assert plan.entries[0].install.reason_skipped == NO_BACKUPS_REASON
 
 
 # ---------- enable step ----------
@@ -255,6 +287,7 @@ def test_restore_step_not_applicable_when_entry_never_backed_up(tmp_path):
 
 def test_enable_step_applicable_for_service_with_enable_now(tmp_path):
     store = _store(tmp_path)
+    _make_snapshot(store, "bind9", "20260601-000000")
     plan = build_recovery_plan(
         resolved_entries=[
             _resolved(
@@ -272,8 +305,11 @@ def test_enable_step_applicable_for_service_with_enable_now(tmp_path):
 
 def test_enable_step_not_applicable_for_app(tmp_path):
     """Apps (e.g. neovim) have no service to enable. The plan reflects
-    this so the report shows 'enable: n/a' instead of failing."""
+    this so the report shows 'enable: n/a' instead of failing. Snapshot
+    is seeded to keep the whole-entry no-backup skip from firing — this
+    test is about the per-step 'app has no service' path."""
     store = _store(tmp_path)
+    _make_snapshot(store, "neovim", "20260601-000000")
     plan = build_recovery_plan(
         resolved_entries=[
             _resolved("neovim", kind=KIND_APP, enable_now=None, service_unit=None)
@@ -292,6 +328,7 @@ def test_enable_step_not_applicable_when_service_missing_enable_now(tmp_path):
     systemd defaults (e.g. all-explicit overrides) ends up without
     enable_now. The planner reports the gap rather than crashing."""
     store = _store(tmp_path)
+    _make_snapshot(store, "custom", "20260601-000000")
     plan = build_recovery_plan(
         resolved_entries=[_resolved("custom", enable_now=None)],
         store=store,
