@@ -135,19 +135,25 @@ where you can't add packages.
 
 ### The pygments/Debian conflict
 
-Plain `pip install` on recent Debian and Ubuntu often fails on
-transitive dependencies with an error like:
+Plain `pip install` on recent Debian and Ubuntu fails on transitive
+dependencies. The current wording (pip 24.x on Debian 12 / Ubuntu
+24.04) is:
 
 ```
-error: uninstall-distutils-installed-package
-Cannot uninstall 'Pygments'. It is a distutils installed project ...
+ERROR: Cannot uninstall Pygments 2.17.2, RECORD file not found.
+Hint: The package was installed by debian.
 ```
 
-`Pygments` is installed by the OS package manager as a system Python
-package; pip refuses to touch it. Two workarounds:
+Older pip versions phrased the same conflict as
+`error: uninstall-distutils-installed-package  Cannot uninstall
+'Pygments'. It is a distutils installed project`. Either way, the
+cause is the same: `Pygments` is installed by the OS package manager
+as a system Python package; pip refuses to touch it.
+
+Two workarounds:
 
 ```bash
-# Preferred: tell pip to ignore the distutils record and lay down its own copy.
+# Preferred: tell pip to ignore the system record and lay down its own copy.
 sudo pip install --ignore-installed git+https://github.com/Joan-mh/Lazyserver.git
 
 # Or, install into your user site (does not need --ignore-installed on
@@ -156,7 +162,9 @@ pip install --user git+https://github.com/Joan-mh/Lazyserver.git
 ```
 
 `--user` puts the entry point at `~/.local/bin/lazyserver`. Make sure
-`~/.local/bin` is on your `PATH`.
+`~/.local/bin` is on your `PATH`. Note: if you later switch to pipx,
+this user-site install can shadow the pipx one — see the
+[stale-binary entry](#stale-lazyserver-binary-shadowing-pipx) in §7.
 
 **Downsides vs pipx:** no isolated venv, less clean to uninstall, more
 likely to collide with a future system-package update. Move to pipx
@@ -238,11 +246,11 @@ You forgot `sudo`. Run:
 sudo lazyserver
 ```
 
-### `Error opening terminal: xterm-kitty` (or similar)
+### `Error opening terminal: xterm-kitty` (or `xterm-ghostty`, etc.)
 
 LazyServer (via Textual, via ncurses) needs a terminfo entry for the
-terminal you're using. Modern terminals (kitty, WezTerm, Alacritty)
-advertise a `TERM` value your server may not have installed.
+terminal you're using. Modern terminals (kitty, ghostty, WezTerm,
+Alacritty) advertise a `TERM` value your server may not have installed.
 
 Two fixes, cheapest first:
 
@@ -279,16 +287,17 @@ If you installed with `pip --user`, add `~/.local/bin` to your
 Ubuntu 22.04 ships Python 3.10. See §1 — install `python3.12` from the
 deadsnakes PPA and pass `--python python3.12` to pipx.
 
-### `Cannot uninstall 'Pygments'. It is a distutils installed project`
+### `Cannot uninstall Pygments … RECORD file not found` (or `distutils installed project`)
 
-The Debian/Ubuntu pip conflict. Use pipx (§2), or add
-`--ignore-installed` (§3).
+The Debian/Ubuntu pip conflict — same cause under two different pip
+wordings. Use pipx (§2), or add `--ignore-installed` (§3).
 
 ### Stale `lazyserver` binary shadowing pipx
 
-If you previously did `sudo pip install lazyserver` and then switched
-to pipx, the old entry point may still be at `/usr/local/bin/lazyserver`
-and shadow the pipx one. Check with:
+If you previously did `sudo pip install lazyserver` (or
+`pip install --user …`, see §3) and then switched to pipx, the old
+entry point may still be at `/usr/local/bin/lazyserver` or
+`~/.local/bin/lazyserver` and shadow the pipx one. Check with:
 
 ```bash
 which -a lazyserver
@@ -297,9 +306,15 @@ which -a lazyserver
 Remove the stale one:
 
 ```bash
+# sudo pip install (system-wide):
 sudo pip uninstall lazyserver
-# or:
+# or, worst case:
 sudo rm /usr/local/bin/lazyserver /usr/local/bin/lsrv
+
+# pip install --user (in your home):
+pip uninstall lazyserver
+# or:
+rm ~/.local/bin/lazyserver ~/.local/bin/lsrv
 ```
 
 ### `sudo lazyserver` starts as root but writes files as root
