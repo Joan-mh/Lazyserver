@@ -85,3 +85,21 @@ openSUSE need only data files (a distro block per entry), not code
 changes — that's the point of the tconf layer.
 
 Vagrant + Ansible export is deferred to v2.0.
+
+## License and disclaimer
+
+LazyServer is released under the [MIT License](LICENSE).
+
+**Use on recoverable machines.** LazyServer edits system config files
+and controls services as root. It is designed for classroom Linux VMs
+where a broken box is one snapshot away from recoverable — see
+[`docs/spec.md`](docs/spec.md) §9 for the assumed deployment context.
+Running it on a production server, a bare-metal box without a recovery
+plan, or a remote-only machine you cannot console into is at your own
+risk.
+
+**No warranty.** The software is provided *as is*, without warranty of
+any kind, express or implied. The authors accept no responsibility for
+data loss, service outages, misconfigured machines, or any other
+consequence of running LazyServer. See the [LICENSE](LICENSE) file for
+the full terms.
